@@ -228,9 +228,11 @@ export default function Home() {
         shoeLeft.position.y = THREE.MathUtils.lerp(shoeLeft.position.y, -0.8, 0.1);
         shoeRight.position.y = THREE.MathUtils.lerp(shoeRight.position.y, -0.8, 0.1);
 
-        // Mãos voltam para o lado
-        handLeft.position.z = THREE.MathUtils.lerp(handLeft.position.z, 0.2, 0.9);
-        handRight.position.z = THREE.MathUtils.lerp(handRight.position.z, 0.2, 0.9);
+        // Mãos vão para uma posição mais afastada e mais para frente
+        handLeft.position.z = THREE.MathUtils.lerp(handLeft.position.z, 0.55, 0.1); // mais para frente
+        handRight.position.z = THREE.MathUtils.lerp(handRight.position.z, 0.55, 0.1); // mais para frente
+        handLeft.position.x = THREE.MathUtils.lerp(handLeft.position.x, -1.15, 0.1); // mais afastada
+        handRight.position.x = THREE.MathUtils.lerp(handRight.position.x, 1.15, 0.1); // mais afastada
       }
 
       renderer.render(scene, camera);
