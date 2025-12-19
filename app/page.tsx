@@ -122,6 +122,16 @@ export default function Home() {
 
   const worldModeRef = useRef<"outside" | "inside">("outside");
 
+  const launchSeqRef = useRef({
+    stage: 0 as 0 | 1 | 2, // 0=antes, 1=primeiro clique (aguarda 2o), 2=disparado
+    readySecond: false,
+    shakeUntil: 0,
+    shakeStart: 0,
+    shakeDur: 0,
+    dropsUntil: 0,
+    dropsAcc: 0,
+  });
+
   const otavioPartyRef = useRef({
     active: false,
     stage: "flip" as "flip" | "dance",
@@ -380,6 +390,7 @@ export default function Home() {
   const helloSfxRef = useRef<HTMLAudioElement | null>(null);
   const wowSfxRef = useRef<HTMLAudioElement | null>(null);
   const alertSfxRef = useRef<HTMLAudioElement | null>(null);
+  const omaigaSfxRef = useRef<HTMLAudioElement | null>(null);
   const chickenSfxRef = useRef<HTMLAudioElement | null>(null);
   const bubbleShownRef = useRef(false);
   const musicMutedRef = useRef(false);
@@ -396,6 +407,7 @@ export default function Home() {
     if (helloSfxRef.current) helloSfxRef.current.volume = sfxVol;
     if (wowSfxRef.current) wowSfxRef.current.volume = sfxVol;
     if (alertSfxRef.current) alertSfxRef.current.volume = sfxVol;
+    if (omaigaSfxRef.current) omaigaSfxRef.current.volume = sfxVol;
     if (chickenSfxRef.current) chickenSfxRef.current.volume = sfxVol;
 
     const ctx = audioCtxRef.current;
@@ -634,6 +646,18 @@ export default function Home() {
     }
   };
 
+  const sayOmaiga = () => {
+    try {
+      const a = omaigaSfxRef.current ?? new Audio("/omaiga.mp3");
+      omaigaSfxRef.current = a;
+      a.volume = musicMutedRef.current ? 0 : SFX_VOL;
+      a.currentTime = 0;
+      void a.play();
+    } catch {
+      // ignore
+    }
+  };
+
   useEffect(() => {
     if (!started) return;
     if (!threeRef.current) return;
@@ -652,6 +676,9 @@ export default function Home() {
     renderer.setSize(width, height);
     renderer.setPixelRatio(window.devicePixelRatio);
     threeRef.current.appendChild(renderer.domElement);
+
+    const raycaster = new THREE.Raycaster();
+    const pointerNdc = new THREE.Vector2();
 
     const setCameraForViewport = (w: number, h: number) => {
       if (worldModeRef.current === "inside") {
@@ -1192,6 +1219,58 @@ export default function Home() {
     launchLabel.position.set(0, 1.16, 0.001);
     launchConsole.add(launchLabel);
 
+    const handleLaunchClick = () => {
+      if (worldModeRef.current !== "inside") return;
+      const ls = launchSeqRef.current;
+
+      if (ls.stage === 0) {
+        ls.stage = 1;
+        ls.readySecond = false;
+        setShowSpeechBubble(true);
+        setBubbleStage("story");
+        setBubbleFollowDoll(true);
+        setBubbleTyped(
+          "Você tem certeza que vai apertar esse botão???? Acho que também estou com fome e é uma otima ideia a gente lanchar.",
+          () => {
+            launchSeqRef.current.readySecond = true;
+          },
+        );
+        return;
+      }
+
+      if (ls.stage === 1 && ls.readySecond) {
+        ls.stage = 2;
+        ls.shakeStart = timeRef.current;
+        ls.shakeDur = 2.2;
+        ls.shakeUntil = timeRef.current + ls.shakeDur;
+        ls.dropsUntil = timeRef.current + 2.2;
+        ls.dropsAcc = 0;
+
+        sayOmaiga();
+
+        setShowSpeechBubble(true);
+        setBubbleStage("story");
+        setBubbleFollowDoll(true);
+        setBubbleTyped("A gente não ia lanchar????");
+      }
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (worldModeRef.current !== "inside") return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      const y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+      pointerNdc.set(x, y);
+      raycaster.setFromCamera(pointerNdc, camera);
+
+      const hits = raycaster.intersectObject(launchConsole, true);
+      if (hits.length > 0) {
+        handleLaunchClick();
+      }
+    };
+
+    renderer.domElement.addEventListener("pointerdown", onPointerDown);
+
     // --- Criação da Boneca ---
     const dollGroup = new THREE.Group();
 
@@ -1412,6 +1491,7 @@ export default function Home() {
     const dustPool: Particle[] = [];
     const smokePool: Particle[] = [];
     const starPool: Particle[] = [];
+    const worryPool: Particle[] = [];
 
     const createPool = (
       pool: Particle[],
@@ -1445,6 +1525,18 @@ export default function Home() {
       opacity: 0.95,
     });
     createPool(starPool, 26, starGeo, starMat, 0.95, 0.9);
+
+    const worryGeo = new THREE.SphereGeometry(0.06, 14, 14);
+    const worryMat = new THREE.MeshStandardMaterial({
+      color: 0x60a5fa,
+      emissive: 0x1d4ed8,
+      emissiveIntensity: 0.55,
+      roughness: 0.35,
+      metalness: 0,
+      transparent: true,
+      opacity: 0.9,
+    });
+    createPool(worryPool, 54, worryGeo, worryMat, 0.9, 1.1);
 
     const tmpWorld = new THREE.Vector3();
     const tmpCamDir = new THREE.Vector3();
@@ -1480,6 +1572,30 @@ export default function Home() {
         p.mesh.rotation.x += (p.mesh.userData.spin as THREE.Vector3).x * dt * 0.6;
         p.mesh.rotation.y += (p.mesh.userData.spin as THREE.Vector3).y * dt * 0.6;
         p.mesh.rotation.z += (p.mesh.userData.spin as THREE.Vector3).z * dt * 0.6;
+        if (p.life <= 0) {
+          p.mesh.visible = false;
+        }
+      }
+    };
+
+    const updatePoolWithGravity = (pool: Particle[], dt: number, gravityY: number) => {
+      for (const p of pool) {
+        if (p.life <= 0) continue;
+        p.life -= dt;
+        const t = THREE.MathUtils.clamp(p.life / p.maxLife, 0, 1);
+        const ease = t * t;
+        const mat = p.mesh.material as THREE.MeshStandardMaterial;
+        mat.opacity = p.baseOpacity * ease;
+
+        const vel = p.mesh.userData.vel as THREE.Vector3;
+        vel.y += gravityY * dt;
+        p.mesh.position.addScaledVector(vel, dt);
+
+        const s = p.mesh.scale.x + dt * 0.35;
+        p.mesh.scale.setScalar(s);
+        p.mesh.rotation.x += (p.mesh.userData.spin as THREE.Vector3).x * dt * 0.8;
+        p.mesh.rotation.y += (p.mesh.userData.spin as THREE.Vector3).y * dt * 0.8;
+        p.mesh.rotation.z += (p.mesh.userData.spin as THREE.Vector3).z * dt * 0.8;
         if (p.life <= 0) {
           p.mesh.visible = false;
         }
@@ -1526,6 +1642,7 @@ export default function Home() {
       updatePool(dustPool, dt);
       updatePool(smokePool, dt);
       updatePool(starPool, dt);
+      updatePoolWithGravity(worryPool, dt, -3.6);
 
 
       // --- ANIMAÇÃO DE PISCAR (com override do suspiro) ---
@@ -2353,13 +2470,17 @@ export default function Home() {
       // --- Balão seguindo a boneca (screen-space) ---
       const bubbleEl = speechBubbleWrapRef.current;
       if (bubbleEl && bubbleFollowDollRef.current) {
-        const p = head.getWorldPosition(tmpWorld.clone());
+        const p = head.getWorldPosition(tmpWorld);
         p.y += 0.85;
         p.project(camera);
         const w = renderer.domElement.clientWidth || window.innerWidth;
         const h = renderer.domElement.clientHeight || window.innerHeight;
-        const x = (p.x * 0.5 + 0.5) * w;
-        const y = (-p.y * 0.5 + 0.5) * h;
+        const xRaw = (p.x * 0.5 + 0.5) * w;
+        const yRaw = (-p.y * 0.5 + 0.5) * h;
+
+        const margin = 16;
+        const x = THREE.MathUtils.clamp(xRaw, margin, w - margin);
+        const y = THREE.MathUtils.clamp(yRaw, 90, h - margin);
         bubbleEl.style.left = `${x}px`;
         bubbleEl.style.top = `${y}px`;
         bubbleEl.style.transform = "translate(-50%, -110%)";
@@ -2367,6 +2488,41 @@ export default function Home() {
         bubbleEl.style.left = "";
         bubbleEl.style.top = "";
         bubbleEl.style.transform = "";
+      }
+
+      // --- LAUNCH: tremor + gotas de preocupação (apenas dentro) ---
+      if (worldModeRef.current === "inside") {
+        const ls = launchSeqRef.current;
+
+        if (time < ls.dropsUntil) {
+          ls.dropsAcc += dt;
+          const rate = 0.03;
+          while (ls.dropsAcc >= rate) {
+            ls.dropsAcc -= rate;
+            const headW = head.getWorldPosition(tmpWorld);
+            headW.y += 0.25;
+            const vel = new THREE.Vector3(
+              (Math.random() - 0.5) * 1.2,
+              1.1 + Math.random() * 1.2,
+              (Math.random() - 0.5) * 0.8,
+            );
+            spawnFromPool(worryPool, headW, vel);
+          }
+        }
+
+        if (time < ls.shakeUntil) {
+          const u = THREE.MathUtils.clamp((time - ls.shakeStart) / Math.max(ls.shakeDur, 0.0001), 0, 1);
+          const falloff = 1 - u;
+          const amp = 0.12 * falloff;
+          camera.position.set(
+            baseCameraPos.x + (Math.random() - 0.5) * amp,
+            baseCameraPos.y + (Math.random() - 0.5) * amp * 0.65,
+            baseCameraPos.z + (Math.random() - 0.5) * amp,
+          );
+          camera.lookAt(0, 0.28, -0.35);
+        } else {
+          camera.position.copy(baseCameraPos);
+        }
       }
 
       // --- Entrar no foguete (após clicar no botão) ---
@@ -2626,6 +2782,14 @@ export default function Home() {
           setCameraForViewport(window.innerWidth, window.innerHeight);
           baseCameraPos = camera.position.clone();
 
+          launchSeqRef.current.stage = 0;
+          launchSeqRef.current.readySecond = false;
+          launchSeqRef.current.shakeUntil = 0;
+          launchSeqRef.current.shakeStart = 0;
+          launchSeqRef.current.shakeDur = 0;
+          launchSeqRef.current.dropsUntil = 0;
+          launchSeqRef.current.dropsAcc = 0;
+
         }
       }
 
@@ -2642,6 +2806,7 @@ export default function Home() {
       camera.aspect = newWidth / newHeight;
       camera.updateProjectionMatrix();
       setCameraForViewport(newWidth, newHeight);
+      baseCameraPos = camera.position.clone();
       renderer.setSize(newWidth, newHeight);
     };
     window.addEventListener('resize', handleResize);
@@ -2656,6 +2821,7 @@ export default function Home() {
       initRef.current = false;
 
       window.removeEventListener('resize', handleResize);
+      renderer.domElement.removeEventListener("pointerdown", onPointerDown);
       cancelAnimationFrame(frameId);
       renderer.dispose();
       scene.traverse((object) => {
@@ -2735,6 +2901,17 @@ export default function Home() {
         alertSfxRef.current = null;
       }
 
+      const omaiga = omaigaSfxRef.current;
+      if (omaiga) {
+        try {
+          omaiga.pause();
+          omaiga.currentTime = 0;
+        } catch {
+          // ignore
+        }
+        omaigaSfxRef.current = null;
+      }
+
       const chicken = chickenSfxRef.current;
       if (chicken) {
         try {
@@ -2775,6 +2952,13 @@ export default function Home() {
         alertSfxRef.current = al;
         al.load();
       }
+      if (!omaigaSfxRef.current) {
+        const o = new Audio("/omaiga.mp3");
+        o.preload = "auto";
+        o.volume = musicMutedRef.current ? 0 : SFX_VOL;
+        omaigaSfxRef.current = o;
+        o.load();
+      }
     } catch {
       // ignore
     }
@@ -2790,6 +2974,14 @@ export default function Home() {
     bubbleShownRef.current = false;
     helloPlayedRef.current = false;
     weirdUntilRef.current = 0;
+
+    launchSeqRef.current.stage = 0;
+    launchSeqRef.current.readySecond = false;
+    launchSeqRef.current.shakeUntil = 0;
+    launchSeqRef.current.shakeStart = 0;
+    launchSeqRef.current.shakeDur = 0;
+    launchSeqRef.current.dropsUntil = 0;
+    launchSeqRef.current.dropsAcc = 0;
 
     agataSeqRef.current.active = false;
     agataSeqRef.current.inited = false;
