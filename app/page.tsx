@@ -8,6 +8,7 @@ export default function Home() {
   const [startHiding, setStartHiding] = useState(false);
   const [showSpeechBubble, setShowSpeechBubble] = useState(false);
   const [playerName, setPlayerName] = useState("");
+  const [musicMuted, setMusicMuted] = useState(false);
   const initRef = useRef(false);
 
   // Em mobile, o 100vh + barra do navegador pode permitir um pequeno scroll.
@@ -53,6 +54,26 @@ export default function Home() {
   const helloPlayedRef = useRef(false);
   const helloSfxRef = useRef<HTMLAudioElement | null>(null);
   const bubbleShownRef = useRef(false);
+  const musicMutedRef = useRef(false);
+
+  const MUSIC_VOL = 0.1;
+
+  const applyMusicMute = (muted: boolean) => {
+    musicMutedRef.current = muted;
+    setMusicMuted(muted);
+
+    const ctx = audioCtxRef.current;
+    const gain = masterGainRef.current;
+    if (!ctx || !gain) return;
+    const t = ctx.currentTime;
+    try {
+      gain.gain.cancelScheduledValues(t);
+      gain.gain.setValueAtTime(gain.gain.value, t);
+      gain.gain.linearRampToValueAtTime(muted ? 0 : MUSIC_VOL, t + 0.03);
+    } catch {
+      gain.gain.value = muted ? 0 : MUSIC_VOL;
+    }
+  };
 
   // --- Música fofinha estilo joguinho ---
   const startBackgroundMusic = () => {
@@ -63,7 +84,7 @@ export default function Home() {
     audioCtxRef.current = audioCtx;
 
     const masterGain = audioCtx.createGain();
-    masterGain.gain.value = 0.1;
+    masterGain.gain.value = musicMutedRef.current ? 0 : MUSIC_VOL;
     masterGain.connect(audioCtx.destination);
     masterGainRef.current = masterGain;
 
@@ -1013,6 +1034,47 @@ export default function Home() {
       className="fixed inset-0 overflow-hidden"
       style={{ background: "linear-gradient(to bottom, #FFF0F5, #FFE4E1)" }}
     >
+      <button
+        type="button"
+        onClick={() => applyMusicMute(!musicMuted)}
+        aria-label={musicMuted ? "Ativar música" : "Mutar música"}
+        title={musicMuted ? "Ativar música" : "Mutar música"}
+        className="pointer-events-auto absolute bottom-4 right-4 z-30 inline-flex h-11 w-11 items-center justify-center rounded-full bg-black/80 text-white backdrop-blur transition-colors hover:bg-black focus:outline-none focus:ring-2 focus:ring-white/40"
+      >
+        <span className="sr-only">{musicMuted ? "Ativar música" : "Mutar música"}</span>
+        {musicMuted ? (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-5 w-5"
+          >
+            <path d="M11 5 6 9H2v6h4l5 4V5z" />
+            <path d="M23 9l-6 6" />
+            <path d="M17 9l6 6" />
+          </svg>
+        ) : (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-5 w-5"
+          >
+            <path d="M11 5 6 9H2v6h4l5 4V5z" />
+            <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+            <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+          </svg>
+        )}
+      </button>
+
       {started && showSpeechBubble ? (
         <div className="pointer-events-auto absolute left-1/2 top-8 z-20 w-[min(92vw,420px)] -translate-x-1/2">
           <div className="relative rounded-2xl border border-zinc-200 bg-white/90 px-5 py-4 text-zinc-900 shadow-sm">
