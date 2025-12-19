@@ -125,6 +125,7 @@ export default function Home() {
   const launchSeqRef = useRef({
     stage: 0 as 0 | 1 | 2, // 0=antes, 1=primeiro clique (aguarda 2o), 2=disparado
     readySecond: false,
+    launchedAt: 0,
     shakeUntil: 0,
     shakeStart: 0,
     shakeDur: 0,
@@ -658,6 +659,68 @@ export default function Home() {
     }
   };
 
+  const playRocketLaunchSfx = () => {
+    const audioCtx = audioCtxRef.current;
+    const masterGain = masterGainRef.current;
+    if (!audioCtx || !masterGain) return;
+
+    const t = audioCtx.currentTime + 0.01;
+
+    // Gain geral do SFX (passa pelo masterGain, então respeita mute)
+    const out = audioCtx.createGain();
+    out.gain.setValueAtTime(0.0001, t);
+    out.gain.exponentialRampToValueAtTime(0.55, t + 0.05);
+    out.gain.exponentialRampToValueAtTime(0.0001, t + 2.4);
+    out.connect(masterGain);
+
+    // Ruído ("vento"/"fogo")
+    const noiseDur = 2.5;
+    const noiseBuf = audioCtx.createBuffer(1, Math.floor(audioCtx.sampleRate * noiseDur), audioCtx.sampleRate);
+    const data = noiseBuf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * 0.6;
+
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = noiseBuf;
+
+    const band = audioCtx.createBiquadFilter();
+    band.type = "bandpass";
+    band.frequency.setValueAtTime(180, t);
+    band.frequency.linearRampToValueAtTime(260, t + 0.6);
+    band.Q.setValueAtTime(0.75, t);
+
+    const noiseGain = audioCtx.createGain();
+    noiseGain.gain.setValueAtTime(0.0001, t);
+    noiseGain.gain.exponentialRampToValueAtTime(1.0, t + 0.06);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0001, t + 2.25);
+
+    noise.connect(band);
+    band.connect(noiseGain);
+    noiseGain.connect(out);
+    noise.start(t);
+    noise.stop(t + noiseDur);
+
+    // Rumble grave (motor)
+    const rumble = audioCtx.createOscillator();
+    rumble.type = "sawtooth";
+    rumble.frequency.setValueAtTime(34, t);
+    rumble.frequency.linearRampToValueAtTime(46, t + 1.2);
+
+    const rumbleFilter = audioCtx.createBiquadFilter();
+    rumbleFilter.type = "lowpass";
+    rumbleFilter.frequency.setValueAtTime(120, t);
+
+    const rumbleGain = audioCtx.createGain();
+    rumbleGain.gain.setValueAtTime(0.0001, t);
+    rumbleGain.gain.exponentialRampToValueAtTime(0.75, t + 0.05);
+    rumbleGain.gain.exponentialRampToValueAtTime(0.0001, t + 2.0);
+
+    rumble.connect(rumbleFilter);
+    rumbleFilter.connect(rumbleGain);
+    rumbleGain.connect(out);
+    rumble.start(t);
+    rumble.stop(t + 2.1);
+  };
+
   useEffect(() => {
     if (!started) return;
     if (!threeRef.current) return;
@@ -948,6 +1011,7 @@ export default function Home() {
     const rocketInterior = new THREE.Group();
     rocketInterior.visible = false;
     scene.add(rocketInterior);
+    const baseRocketInteriorPos = rocketInterior.position.clone();
 
     const interiorWallMat = new THREE.MeshStandardMaterial({
       color: 0xd9e0ea,
@@ -1019,7 +1083,7 @@ export default function Home() {
     wpR2.position.set(2.35, 1.75, 1.9);
     rocketInterior.add(wpR1, wpR2);
 
-    // Janela/painel com estrelas no fundo
+    // Janela/painel no fundo (vira uma "janela" com céu->espaço conforme decola)
     const winFrame = new THREE.Mesh(new THREE.BoxGeometry(3.25, 1.75, 0.12), frameMat);
     winFrame.position.set(0, 0.95, -3.05);
     rocketInterior.add(winFrame);
@@ -1043,12 +1107,94 @@ export default function Home() {
         starsCtx.fillRect(x, y, r, r);
       }
     }
-    const starsTex = new THREE.CanvasTexture(starsCanvas);
-    starsTex.needsUpdate = true;
-    const starsMat = new THREE.MeshStandardMaterial({ map: starsTex, emissive: 0xffffff, emissiveIntensity: 0.35, roughness: 0.9, metalness: 0.0 });
-    const winScreen = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 1.5), starsMat);
+    const windowCanvas = document.createElement("canvas");
+    windowCanvas.width = 1024;
+    windowCanvas.height = 512;
+    const windowCtx = windowCanvas.getContext("2d");
+    const windowTex = new THREE.CanvasTexture(windowCanvas);
+    windowTex.colorSpace = THREE.SRGBColorSpace;
+    windowTex.minFilter = THREE.LinearFilter;
+    windowTex.magFilter = THREE.LinearFilter;
+    windowTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    windowTex.needsUpdate = true;
+
+    const windowMat = new THREE.MeshBasicMaterial({ map: windowTex });
+    const winScreen = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 1.5), windowMat);
     winScreen.position.set(0, 0.95, -2.98);
     rocketInterior.add(winScreen);
+
+    const clamp01Local = (v: number) => Math.max(0, Math.min(1, v));
+    const ease01Local = (v: number) => {
+      const x = clamp01Local(v);
+      return x * x * (3 - 2 * x);
+    };
+    const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+    const hexToRgb = (hex: number) => [((hex >> 16) & 255), ((hex >> 8) & 255), (hex & 255)];
+    const mixRgb = (a: number[], b: number[], t: number) => [
+      Math.round(lerp(a[0], b[0], t)),
+      Math.round(lerp(a[1], b[1], t)),
+      Math.round(lerp(a[2], b[2], t)),
+    ];
+    const rgbStr = (rgb: number[], a = 1) => `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a})`;
+
+    let lastWindowProgress = -1;
+    const drawWindow = (progress: number, tNow: number) => {
+      if (!windowCtx) return;
+      const w = windowCanvas.width;
+      const h = windowCanvas.height;
+      const p = ease01Local(progress);
+
+      // Fundo: céu claro -> espaço escuro
+      const topDay = hexToRgb(0x9fdcff);
+      const botDay = hexToRgb(0xeaf8ff);
+      const topSpace = hexToRgb(0x050815);
+      const botSpace = hexToRgb(0x0b1022);
+      const top = mixRgb(topDay, topSpace, p);
+      const bot = mixRgb(botDay, botSpace, p);
+
+      const g = windowCtx.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0, rgbStr(top));
+      g.addColorStop(1, rgbStr(bot));
+      windowCtx.fillStyle = g;
+      windowCtx.fillRect(0, 0, w, h);
+
+      // Chão (só antes de decolar muito)
+      const groundAlpha = clamp01Local(1 - p * 1.9);
+      if (groundAlpha > 0.001) {
+        const gh = Math.floor(h * (0.22 + (1 - p) * 0.05));
+        const y0 = h - gh;
+        const gg = windowCtx.createLinearGradient(0, y0, 0, h);
+        gg.addColorStop(0, `rgba(34,197,94,${0.22 * groundAlpha})`);
+        gg.addColorStop(1, `rgba(22,163,74,${0.55 * groundAlpha})`);
+        windowCtx.fillStyle = gg;
+        windowCtx.fillRect(0, y0, w, gh);
+
+        // leve neblina perto do horizonte
+        windowCtx.fillStyle = `rgba(255,255,255,${0.12 * groundAlpha})`;
+        windowCtx.fillRect(0, y0 - 26, w, 26);
+      }
+
+      // Estrelas chegando conforme sobe
+      const starsAlpha = clamp01Local((p - 0.22) / 0.62);
+      if (starsAlpha > 0.001) {
+        const ox = Math.floor((tNow * 28) % 512);
+        const oy = Math.floor((tNow * 18) % 512);
+        windowCtx.save();
+        windowCtx.globalAlpha = 0.9 * starsAlpha;
+        // tile simples 2x2
+        for (let yi = -1; yi <= 1; yi++) {
+          for (let xi = -1; xi <= 2; xi++) {
+            windowCtx.drawImage(starsCanvas, -ox + xi * 512, -oy + yi * 512, 512, 512);
+          }
+        }
+        windowCtx.restore();
+      }
+
+      windowTex.needsUpdate = true;
+    };
+
+    // Inicial (antes de lançar): céu + chão
+    drawWindow(0, 0);
 
     // Quadro com astronauta.png (parede direita)
     const texLoader = new THREE.TextureLoader();
@@ -1243,6 +1389,7 @@ export default function Home() {
 
       if (ls.stage === 1 && ls.readySecond) {
         ls.stage = 2;
+        ls.launchedAt = timeRef.current;
         ls.shakeStart = timeRef.current;
         ls.shakeDur = 2.2;
         ls.shakeUntil = timeRef.current + ls.shakeDur;
@@ -1250,6 +1397,8 @@ export default function Home() {
         ls.dropsAcc = 0;
 
         switchToUpbeatMusic();
+
+        playRocketLaunchSfx();
 
         sayOmaiga();
 
@@ -2499,6 +2648,13 @@ export default function Home() {
       if (worldModeRef.current === "inside") {
         const ls = launchSeqRef.current;
 
+        // Janela: 0 (antes) -> 1 (espaço) depois de lançar
+        const targetProgress = ls.stage >= 2 ? THREE.MathUtils.clamp((time - ls.launchedAt) / 12.0, 0, 1) : 0;
+        if (Math.abs(targetProgress - lastWindowProgress) > 0.01) {
+          lastWindowProgress = targetProgress;
+          drawWindow(targetProgress, time);
+        }
+
         if (time < ls.dropsUntil) {
           ls.dropsAcc += dt;
           const rate = 0.03;
@@ -2525,8 +2681,17 @@ export default function Home() {
             baseCameraPos.z + (Math.random() - 0.5) * amp,
           );
           camera.lookAt(0, 0.28, -0.35);
+
+          // Tremor do foguete/interior também (bem sutil)
+          const iAmp = 0.04 * falloff;
+          rocketInterior.position.set(
+            baseRocketInteriorPos.x + (Math.random() - 0.5) * iAmp,
+            baseRocketInteriorPos.y + (Math.random() - 0.5) * iAmp,
+            baseRocketInteriorPos.z,
+          );
         } else {
           camera.position.copy(baseCameraPos);
+          rocketInterior.position.copy(baseRocketInteriorPos);
         }
       }
 
@@ -2789,6 +2954,7 @@ export default function Home() {
 
           launchSeqRef.current.stage = 0;
           launchSeqRef.current.readySecond = false;
+          launchSeqRef.current.launchedAt = 0;
           launchSeqRef.current.shakeUntil = 0;
           launchSeqRef.current.shakeStart = 0;
           launchSeqRef.current.shakeDur = 0;
@@ -2982,6 +3148,7 @@ export default function Home() {
 
     launchSeqRef.current.stage = 0;
     launchSeqRef.current.readySecond = false;
+    launchSeqRef.current.launchedAt = 0;
     launchSeqRef.current.shakeUntil = 0;
     launchSeqRef.current.shakeStart = 0;
     launchSeqRef.current.shakeDur = 0;
