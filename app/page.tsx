@@ -13,14 +13,17 @@ export default function Home() {
   const [nameLocked, setNameLocked] = useState(false);
   const [musicMuted, setMusicMuted] = useState(false);
   const [bubbleStage, setBubbleStage] = useState<
-    "name" | "proceed" | "story" | "choices" | "otavioSorry" | "otavioRestart"
+    "name" | "proceed" | "story" | "choices" | "enterRocket" | "otavioSorry" | "otavioRestart"
   >("name");
   const [choice, setChoice] = useState<null | "go" | "stay">(null);
   const [isTypingBubble, setIsTypingBubble] = useState(false);
+  const [bubbleFollowDoll, setBubbleFollowDoll] = useState(false);
   const initRef = useRef(false);
+  const speechBubbleWrapRef = useRef<HTMLDivElement>(null);
+  const bubbleFollowDollRef = useRef(false);
 
   const bubbleStageRef = useRef<
-    "name" | "proceed" | "story" | "choices" | "otavioSorry" | "otavioRestart"
+    "name" | "proceed" | "story" | "choices" | "enterRocket" | "otavioSorry" | "otavioRestart"
   >("name");
   const choiceRef = useRef<null | "go" | "stay">(null);
 
@@ -78,7 +81,45 @@ export default function Home() {
     wowPlayed: false,
     danceUntil: 0,
     done: false,
+    rocketQueued: false,
   });
+
+  const rocketSeqRef = useRef({
+    pending: false,
+    pendingAt: 0,
+    active: false,
+    inited: false,
+    startedAt: 0,
+    landed: false,
+    messageShown: false,
+  });
+
+  const rocketEnterRef = useRef({
+    active: false,
+    stage: "walk" as "walk" | "press" | "open" | "prompt" | "run",
+    startedAt: 0,
+    inited: false,
+    fromX: 0,
+    fromY: 0,
+    fromZ: 0,
+    toX: 0,
+    toY: 0,
+    toZ: 0,
+  });
+
+  const rocketCamRef = useRef({
+    active: false,
+    startedAt: 0,
+    dur: 1.25,
+    inited: false,
+    from: new THREE.Vector3(),
+    to: new THREE.Vector3(),
+    fromLook: new THREE.Vector3(),
+    toLook: new THREE.Vector3(),
+    switched: false,
+  });
+
+  const worldModeRef = useRef<"outside" | "inside">("outside");
 
   const otavioPartyRef = useRef({
     active: false,
@@ -198,6 +239,17 @@ export default function Home() {
     window.location.reload();
   };
 
+  const handleEnterRocket = () => {
+    setShowSpeechBubble(false);
+    setBubbleStage("story");
+    setBubbleFollowDoll(false);
+
+    rocketEnterRef.current.active = true;
+    rocketEnterRef.current.stage = "walk";
+    rocketEnterRef.current.startedAt = timeRef.current;
+    rocketEnterRef.current.inited = false;
+  };
+
   const handleChoice = (c: "go" | "stay") => {
     setChoice(c);
     setBubbleStage("story");
@@ -206,10 +258,17 @@ export default function Home() {
     panicRef.current.pendingStart = false;
     panicRef.current.inited = false;
 
-    quakeSeqRef.current.active = false;
-    quakeSeqRef.current.restore = true;
-
     if (c === "go") {
+      // Mantém o terremoto rolando
+      quakeSeqRef.current.active = true;
+      quakeSeqRef.current.restore = false;
+
+      rocketSeqRef.current.pending = false;
+      rocketSeqRef.current.active = false;
+      rocketSeqRef.current.inited = false;
+      rocketSeqRef.current.landed = false;
+      rocketSeqRef.current.messageShown = false;
+
       // Ela vai sair lá do fundo e voltar correndo pra frente.
       // A fala só aparece quando ela chegar.
       setShowSpeechBubble(false);
@@ -219,7 +278,10 @@ export default function Home() {
       goReturnRef.current.wowPlayed = false;
       goReturnRef.current.danceUntil = 0;
       goReturnRef.current.done = false;
+      goReturnRef.current.rocketQueued = false;
     } else {
+      quakeSeqRef.current.active = false;
+      quakeSeqRef.current.restore = true;
       setBubbleTyped("Ta bom... cuidado, por favor!");
     }
   };
@@ -264,6 +326,10 @@ export default function Home() {
   useEffect(() => {
     bubbleStageRef.current = bubbleStage;
   }, [bubbleStage]);
+
+  useEffect(() => {
+    bubbleFollowDollRef.current = bubbleFollowDoll;
+  }, [bubbleFollowDoll]);
 
   useEffect(() => {
     choiceRef.current = choice;
@@ -587,6 +653,14 @@ export default function Home() {
     threeRef.current.appendChild(renderer.domElement);
 
     const setCameraForViewport = (w: number, h: number) => {
+      if (worldModeRef.current === "inside") {
+        const t = THREE.MathUtils.clamp((768 - w) / 768, 0, 1);
+        const z = 3.4 + t * 1.6;
+        const y = 0.85 + t * 0.2;
+        camera.position.set(0, y, z);
+        camera.lookAt(0, 0.45, 0);
+        return;
+      }
       // Em telas menores, afasta mais a câmera para não ficar “gigante” no celular.
       const t = THREE.MathUtils.clamp((768 - w) / 768, 0, 1);
       const z = 6 + t * 6; // 6 (desktop) -> ~12 (mobile)
@@ -733,6 +807,111 @@ export default function Home() {
     const mouthMat = new THREE.MeshStandardMaterial({ color: 0xFF6347, ...matSettings });
     const blushMat = new THREE.MeshStandardMaterial({ color: 0xFF69B4, transparent: true, opacity: 0.4 });
     const highlightMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+    // --- Foguete (pousa no fundo após o "Woooow!") ---
+    const rocketGroup = new THREE.Group();
+    rocketGroup.visible = false;
+    // Mais perto da câmera pra ficar bem visível
+    const rocketX = 4.8;
+    const rocketZ = -18.5;
+    const rocketLandY = ground.position.y;
+    scene.add(rocketGroup);
+
+    const rocketBodyMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.75, metalness: 0.05 });
+    const rocketAccentMat = new THREE.MeshStandardMaterial({ color: 0xff6b6b, roughness: 0.7, metalness: 0.05 });
+    const rocketWindowMat = new THREE.MeshStandardMaterial({ color: 0x6ecbff, roughness: 0.35, metalness: 0.05 });
+
+    const rocketBody = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, 2.8, 18), rocketBodyMat);
+    rocketBody.position.y = 1.4;
+    rocketGroup.add(rocketBody);
+
+    const rocketNose = new THREE.Mesh(new THREE.ConeGeometry(0.46, 0.9, 18), rocketAccentMat);
+    rocketNose.position.y = 2.8 + 0.45;
+    rocketGroup.add(rocketNose);
+
+    const rocketBase = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.52, 0.18, 18), rocketAccentMat);
+    rocketBase.position.y = 0.09;
+    rocketGroup.add(rocketBase);
+
+    const rocketWindow = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), rocketWindowMat);
+    rocketWindow.position.set(0, 1.65, 0.48);
+    rocketWindow.scale.set(1, 1, 0.6);
+    rocketGroup.add(rocketWindow);
+
+    const finGeo = new THREE.BoxGeometry(0.08, 0.35, 0.55);
+    const fin1 = new THREE.Mesh(finGeo, rocketAccentMat);
+    fin1.position.set(0.4, 0.5, 0);
+    fin1.rotation.y = 0.15;
+    const fin2 = fin1.clone();
+    fin2.position.set(-0.4, 0.5, 0);
+    fin2.rotation.y = -0.15;
+    rocketGroup.add(fin1, fin2);
+
+    // Porta (fechada por padrão)
+    const rocketDoorPivot = new THREE.Group();
+    rocketDoorPivot.position.set(0.42, 1.05, 0.52); // lado direito / frente
+    rocketGroup.add(rocketDoorPivot);
+
+    const rocketDoor = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.95, 0.55), rocketAccentMat);
+    rocketDoor.position.set(0.04, 0.48, 0); // hinge próximo do pivot
+    rocketDoorPivot.add(rocketDoor);
+
+    // Botão externo
+    const rocketButton = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.05, 14), rocketWindowMat);
+    rocketButton.rotation.x = Math.PI / 2;
+    rocketButton.position.set(0.55, 1.0, 0.42);
+    rocketGroup.add(rocketButton);
+
+    rocketGroup.position.set(rocketX, rocketLandY, rocketZ);
+    rocketGroup.scale.setScalar(2.3);
+
+    // --- Cenário: Dentro do foguete ---
+    const rocketInterior = new THREE.Group();
+    rocketInterior.visible = false;
+    scene.add(rocketInterior);
+
+    const interiorWallMat = new THREE.MeshStandardMaterial({
+      color: 0xf3f4f6,
+      roughness: 0.95,
+      metalness: 0.0,
+      side: THREE.BackSide,
+    });
+    const interiorFloorMat = new THREE.MeshStandardMaterial({
+      color: 0xe5e7eb,
+      roughness: 1.0,
+      metalness: 0.0,
+      side: THREE.DoubleSide,
+    });
+    const interiorAccentMat = new THREE.MeshStandardMaterial({ color: 0x93c5fd, roughness: 0.75, metalness: 0.05 });
+
+    const cabin = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 6.8, 28, 1, true), interiorWallMat);
+    cabin.rotation.z = Math.PI / 2;
+    cabin.position.set(0, 1.2, 0);
+    rocketInterior.add(cabin);
+
+    const cabinFloor = new THREE.Mesh(new THREE.PlaneGeometry(6.2, 6.2), interiorFloorMat);
+    cabinFloor.rotation.x = -Math.PI / 2;
+    cabinFloor.position.set(0, -1.42, 0);
+    rocketInterior.add(cabinFloor);
+
+    const capGeo = new THREE.CircleGeometry(3.2, 28);
+    const capA = new THREE.Mesh(capGeo, new THREE.MeshStandardMaterial({ color: 0xf3f4f6, roughness: 0.95, metalness: 0.0 }));
+    capA.rotation.y = Math.PI / 2;
+    capA.position.set(-3.4, 1.2, 0);
+    rocketInterior.add(capA);
+
+    const capB = capA.clone();
+    capB.rotation.y = -Math.PI / 2;
+    capB.position.set(3.4, 1.2, 0);
+    rocketInterior.add(capB);
+
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.8, 0.6), interiorAccentMat);
+    panel.position.set(0, 0.0, -2.2);
+    rocketInterior.add(panel);
+
+    const panelLight = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.25, 0.05), new THREE.MeshBasicMaterial({ color: 0x22c55e }));
+    panelLight.position.set(0, 0.15, -1.9);
+    rocketInterior.add(panelLight);
 
     // --- Criação da Boneca ---
     const dollGroup = new THREE.Group();
@@ -989,6 +1168,9 @@ export default function Home() {
     createPool(starPool, 26, starGeo, starMat, 0.95, 0.9);
 
     const tmpWorld = new THREE.Vector3();
+    const tmpCamDir = new THREE.Vector3();
+    const tmpLook = new THREE.Vector3();
+    const tmpDoor = new THREE.Vector3();
     const spawnFromPool = (pool: Particle[], pos: THREE.Vector3, vel: THREE.Vector3) => {
       const p = pool.find((x) => x.life <= 0);
       if (!p) return;
@@ -1834,7 +2016,203 @@ export default function Home() {
         }
 
         if (gr.done && time > gr.danceUntil) {
+          if (!gr.rocketQueued) {
+            gr.rocketQueued = true;
+            // Queremos: 1s depois que ela para de dançar, o foguete "já pousou".
+            // Então iniciamos a descida um pouco antes para terminar exatamente em +1.0s.
+            rocketSeqRef.current.pending = true;
+            rocketSeqRef.current.pendingAt = gr.danceUntil + 0.65;
+            rocketSeqRef.current.active = false;
+            rocketSeqRef.current.inited = false;
+            rocketSeqRef.current.landed = false;
+            rocketSeqRef.current.messageShown = false;
+          }
           gr.active = false;
+        }
+      }
+
+      // --- Foguete (pouso no fundo) ---
+      const rk = rocketSeqRef.current;
+      if (rk.pending && time >= rk.pendingAt) {
+        rk.pending = false;
+        rk.active = true;
+        rk.inited = false;
+        rk.startedAt = time;
+      }
+
+      if (rk.active) {
+        if (!rk.inited) {
+          rk.inited = true;
+          rocketGroup.visible = true;
+          rocketGroup.position.set(rocketX, rocketLandY + 6.0, rocketZ);
+          rocketGroup.rotation.set(0, 0, 0);
+          rocketDoorPivot.rotation.y = 0;
+        }
+
+        const dur = 0.35;
+        const u = smooth01(Math.min((time - rk.startedAt) / dur, 1));
+        rocketGroup.position.y = THREE.MathUtils.lerp(rocketLandY + 6.0, rocketLandY, u);
+        rocketGroup.rotation.z = Math.sin(u * Math.PI) * 0.06;
+
+        if (u >= 1) {
+          rk.active = false;
+          rk.landed = true;
+          rocketGroup.position.y = rocketLandY;
+          rocketGroup.rotation.z = 0;
+        }
+      }
+
+      if (rk.landed && !rk.messageShown) {
+        rk.messageShown = true;
+        setShowSpeechBubble(true);
+        setBubbleStage("story");
+        setBubbleTyped("Que conveniente, um foguete apareceu, vamos entrar nele", () => {
+          setBubbleStage("enterRocket");
+        });
+      }
+
+      // --- Balão seguindo a boneca (screen-space) ---
+      const bubbleEl = speechBubbleWrapRef.current;
+      if (bubbleEl && bubbleFollowDollRef.current) {
+        const p = head.getWorldPosition(tmpWorld.clone());
+        p.y += 0.85;
+        p.project(camera);
+        const w = renderer.domElement.clientWidth || window.innerWidth;
+        const h = renderer.domElement.clientHeight || window.innerHeight;
+        const x = (p.x * 0.5 + 0.5) * w;
+        const y = (-p.y * 0.5 + 0.5) * h;
+        bubbleEl.style.left = `${x}px`;
+        bubbleEl.style.top = `${y}px`;
+        bubbleEl.style.transform = "translate(-50%, -110%)";
+      } else if (bubbleEl) {
+        bubbleEl.style.left = "";
+        bubbleEl.style.top = "";
+        bubbleEl.style.transform = "";
+      }
+
+      // --- Entrar no foguete (após clicar no botão) ---
+      const re = rocketEnterRef.current;
+      if (re.active && rocketSeqRef.current.landed) {
+        if (!re.inited) {
+          re.inited = true;
+          re.fromX = dollGroup.position.x;
+          re.fromY = dollGroup.position.y;
+          re.fromZ = dollGroup.position.z;
+          // Ponto de parada em frente ao foguete
+          re.toX = rocketX - 2.1;
+          re.toY = -0.5;
+          re.toZ = rocketZ + 3.1;
+          rocketDoorPivot.rotation.y = 0;
+        }
+
+        const elapsed = time - re.startedAt;
+
+        if (re.stage === "walk") {
+          const dur = 2.8;
+          const u = smooth01(Math.min(elapsed / dur, 1));
+          dollGroup.position.x = THREE.MathUtils.lerp(re.fromX, re.toX, u);
+          dollGroup.position.y = re.toY + Math.abs(Math.sin(time * animSpeed)) * 0.08;
+          dollGroup.position.z = THREE.MathUtils.lerp(re.fromZ, re.toZ, u);
+
+          // Olhando na direção do foguete
+          const dx = rocketX - dollGroup.position.x;
+          const dz = rocketZ - dollGroup.position.z;
+          dollGroup.rotation.y = THREE.MathUtils.lerp(dollGroup.rotation.y, Math.atan2(dx, -dz), 0.18);
+
+          // Caminhada
+          const walkAnim = animSpeed * 1.25;
+          shoeLeft.position.z = Math.sin(time * walkAnim) * 0.22;
+          shoeRight.position.z = Math.sin(time * walkAnim + Math.PI) * 0.22;
+          shoeLeft.position.y = shoeBaseY + Math.max(0, Math.sin(time * walkAnim)) * (shoeStepLift * 0.85);
+          shoeRight.position.y = shoeBaseY + Math.max(0, Math.sin(time * walkAnim + Math.PI)) * (shoeStepLift * 0.85);
+          handLeft.position.z = Math.sin(time * walkAnim + Math.PI) * 0.18 + 0.35;
+          handRight.position.z = Math.sin(time * walkAnim) * 0.18 + 0.35;
+          handLeft.position.x = THREE.MathUtils.lerp(handLeft.position.x, handWalkXLeft, 0.22);
+          handRight.position.x = THREE.MathUtils.lerp(handRight.position.x, handWalkXRight, 0.22);
+          handLeft.position.y = THREE.MathUtils.lerp(handLeft.position.y, handIdleY, 0.22);
+          handRight.position.y = THREE.MathUtils.lerp(handRight.position.y, handIdleY, 0.22);
+
+          if (u >= 1) {
+            re.stage = "press";
+            re.startedAt = time;
+          }
+        } else if (re.stage === "press") {
+          // Porta fechada; ela aperta o botão
+          const dur = 0.75;
+          const u = smooth01(Math.min(elapsed / dur, 1));
+          rocketDoorPivot.rotation.y = 0;
+
+          // Mão direita vai pra frente (simula apertar)
+          handRight.position.x = THREE.MathUtils.lerp(handRight.position.x, handIdleXRight + 0.25, 0.25);
+          handRight.position.y = THREE.MathUtils.lerp(handRight.position.y, 0.05, 0.25);
+          handRight.position.z = THREE.MathUtils.lerp(handRight.position.z, 1.15, 0.25);
+
+          // Pernas paradas
+          shoeLeft.position.z = 0;
+          shoeRight.position.z = 0;
+
+          if (u >= 1) {
+            re.stage = "open";
+            re.startedAt = time;
+          }
+        } else if (re.stage === "open") {
+          const dur = 0.7;
+          const u = smooth01(Math.min(elapsed / dur, 1));
+          rocketDoorPivot.rotation.y = THREE.MathUtils.lerp(0, -1.25, u);
+
+          // Mão volta pro idle
+          handRight.position.x = THREE.MathUtils.lerp(handRight.position.x, handIdleXRight, 0.18);
+          handRight.position.y = THREE.MathUtils.lerp(handRight.position.y, handIdleY, 0.18);
+          handRight.position.z = THREE.MathUtils.lerp(handRight.position.z, handIdleZ, 0.18);
+
+          if (u >= 1) {
+            re.stage = "prompt";
+            re.startedAt = time;
+            setShowSpeechBubble(true);
+            setBubbleFollowDoll(true);
+            setBubbleStage("story");
+            setBubbleTyped("Entra logo", () => {
+              setShowSpeechBubble(false);
+              setBubbleFollowDoll(false);
+              rocketEnterRef.current.stage = "run";
+              rocketEnterRef.current.startedAt = timeRef.current;
+            });
+          }
+        } else if (re.stage === "prompt") {
+          // aguardando typing terminar (callback acima)
+        } else if (re.stage === "run") {
+          const dur = 1.25;
+          const u = smooth01(Math.min(elapsed / dur, 1));
+          const toX = rocketX;
+          const toZ = rocketZ + 1.2;
+          dollGroup.position.x = THREE.MathUtils.lerp(re.toX, toX, u);
+          dollGroup.position.z = THREE.MathUtils.lerp(re.toZ, toZ, u);
+          dollGroup.position.y = -0.5 + Math.abs(Math.sin(time * animSpeed * 2.1)) * 0.14;
+
+          // Corrida
+          const runAnim = animSpeed * 2.1;
+          shoeLeft.position.z = Math.sin(time * runAnim) * 0.5;
+          shoeRight.position.z = Math.sin(time * runAnim + Math.PI) * 0.5;
+          shoeLeft.position.y = shoeBaseY + Math.max(0, Math.sin(time * runAnim)) * (shoeStepLift * 1.25);
+          shoeRight.position.y = shoeBaseY + Math.max(0, Math.sin(time * runAnim + Math.PI)) * (shoeStepLift * 1.25);
+          handLeft.position.z = Math.sin(time * runAnim + Math.PI) * 0.32 + 0.25;
+          handRight.position.z = Math.sin(time * runAnim) * 0.32 + 0.25;
+
+          // Olhando na direção do foguete enquanto corre
+          const dx = rocketX - dollGroup.position.x;
+          const dz = rocketZ - dollGroup.position.z;
+          dollGroup.rotation.y = THREE.MathUtils.lerp(dollGroup.rotation.y, Math.atan2(dx, -dz), 0.25);
+
+          if (u >= 1) {
+            re.active = false;
+            // some pra dar sensação de que entrou
+            dollGroup.visible = false;
+
+            rocketCamRef.current.active = true;
+            rocketCamRef.current.inited = false;
+            rocketCamRef.current.startedAt = time;
+            rocketCamRef.current.switched = false;
+          }
         }
       }
 
@@ -1908,6 +2286,46 @@ export default function Home() {
             shoeRight.position.z = Math.sin(d * 10 + Math.PI) * 0.18;
           }
         }
+
+      // --- Câmera entrando no foguete -> troca para interior ---
+      const rc = rocketCamRef.current;
+      if (rc.active) {
+        if (!rc.inited) {
+          rc.inited = true;
+          rc.from.copy(camera.position);
+          camera.getWorldDirection(tmpCamDir);
+          rc.fromLook.copy(camera.position).add(tmpCamDir.multiplyScalar(10));
+
+          rocketDoorPivot.getWorldPosition(tmpDoor);
+          rc.to.copy(tmpDoor).add(new THREE.Vector3(-2.0, 0.85, 3.2));
+          rc.toLook.copy(tmpDoor).add(new THREE.Vector3(0.0, 0.25, 0.0));
+        }
+
+        const u = smooth01(Math.min((time - rc.startedAt) / rc.dur, 1));
+        camera.position.lerpVectors(rc.from, rc.to, u);
+        tmpLook.lerpVectors(rc.fromLook, rc.toLook, u);
+        camera.lookAt(tmpLook);
+
+        if (u >= 1) {
+          rc.active = false;
+          worldModeRef.current = "inside";
+
+          quakeSeqRef.current.active = false;
+          quakeSeqRef.current.restore = false;
+          panicRef.current.active = false;
+          panicRef.current.pendingStart = false;
+
+          sky.visible = false;
+          ground.visible = false;
+          forest.visible = false;
+          rocketGroup.visible = false;
+          rocketInterior.visible = true;
+
+          camera.position.set(0, 0.85, 3.4);
+          camera.lookAt(0, 0.45, 0);
+          baseCameraPos = camera.position.clone();
+        }
+      }
 
       renderer.render(scene, camera);
     }
@@ -2139,7 +2557,10 @@ export default function Home() {
       ) : null}
 
       {started && showSpeechBubble ? (
-        <div className="pointer-events-auto absolute left-1/2 top-8 z-20 w-[min(92vw,420px)] -translate-x-1/2">
+        <div
+          ref={speechBubbleWrapRef}
+          className="pointer-events-auto absolute left-1/2 top-8 z-20 w-[min(92vw,420px)] -translate-x-1/2"
+        >
           <div className="relative rounded-2xl border border-zinc-200 bg-white/90 px-5 py-4 text-zinc-900 shadow-sm">
             <div className="text-base font-semibold">{bubbleText}</div>
             {bubbleStage === "name" ? (
@@ -2222,6 +2643,19 @@ export default function Home() {
                   className="w-full rounded-xl bg-black px-4 py-3 text-base font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Desculpa
+                </button>
+              </div>
+            ) : null}
+
+            {bubbleStage === "enterRocket" ? (
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={handleEnterRocket}
+                  disabled={isTypingBubble}
+                  className="w-full rounded-xl bg-black px-4 py-3 text-base font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Entrar no foguete
                 </button>
               </div>
             ) : null}
