@@ -20,8 +20,17 @@ export default function Home() {
     renderer.setPixelRatio(window.devicePixelRatio);
     threeRef.current.appendChild(renderer.domElement);
     
+    const setCameraForViewport = (w: number, h: number) => {
+      // Em telas menores, afasta mais a câmera para não ficar “gigante” no celular.
+      const t = THREE.MathUtils.clamp((768 - w) / 768, 0, 1);
+      const z = 6 + t * 6; // 6 (desktop) -> ~12 (mobile)
+      const y = 0.5 + t * 0.15;
+      camera.position.set(0, y, z);
+      camera.lookAt(0, 0.6, 0);
+    };
+
     // Câmera parada, olhando para o centro
-    camera.position.set(0, 0.5, 6); 
+    setCameraForViewport(width, height);
 
     // --- 2. Iluminação ---
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); 
@@ -140,10 +149,12 @@ export default function Home() {
     const shoeScale = 0.35;
     const shoeLeft = new THREE.Mesh(sphereGeoMid, shoesMat);
     shoeLeft.scale.set(shoeScale, shoeScale * 0.6, shoeScale * 1.2);
-    shoeLeft.position.set(-0.4, -0.8, 0); // Posição base
+    const shoeBaseY = -1.05;
+    const shoeStepLift = 0.16;
+    shoeLeft.position.set(-0.4, shoeBaseY, 0); // Posição base
 
     const shoeRight = shoeLeft.clone();
-    shoeRight.position.set(0.4, -0.8, 0); // Posição base
+    shoeRight.position.set(0.4, shoeBaseY, 0); // Posição base
     dollGroup.add(shoeLeft, shoeRight);
 
     // POSIÇÃO INICIAL (Longe no fundo)
@@ -262,14 +273,14 @@ export default function Home() {
 
         // Balanço lateral (Wobble) - deixa fofo
         dollGroup.rotation.z = Math.sin(time * (animSpeed / 2)) * 0.05;
-        dollGroup.rotation.y = Math.sin(time * (animSpeed / 4)) * 0.02; // Leve rotação Y
+        dollGroup.rotation.y = Math.sin(time * (animSpeed / 4)) * 0.02;
 
         // Animação Pés (Alternados)
         shoeLeft.position.z = Math.sin(time * animSpeed) * 0.4;
         shoeRight.position.z = Math.sin(time * animSpeed + Math.PI) * 0.4;
-        // Levantar levemente o pé que vai para frente
-        shoeLeft.position.y = -0.8 + Math.max(0, Math.sin(time * animSpeed)) * 0.2;
-        shoeRight.position.y = -0.8 + Math.max(0, Math.sin(time * animSpeed + Math.PI)) * 0.2;
+        // Levantar levemente o pé que vai para frente (sem atravessar o vestido)
+        shoeLeft.position.y = shoeBaseY + Math.max(0, Math.sin(time * animSpeed)) * shoeStepLift;
+        shoeRight.position.y = shoeBaseY + Math.max(0, Math.sin(time * animSpeed + Math.PI)) * shoeStepLift;
 
         // Animação Mãos (Oposto aos pés)
         handLeft.position.z = Math.sin(time * animSpeed + Math.PI) * 0.3 + 0.2;
@@ -307,8 +318,8 @@ export default function Home() {
         // Pés voltam pro chão
         shoeLeft.position.z = THREE.MathUtils.lerp(shoeLeft.position.z, 0, 0.1);
         shoeRight.position.z = THREE.MathUtils.lerp(shoeRight.position.z, 0, 0.1);
-        shoeLeft.position.y = THREE.MathUtils.lerp(shoeLeft.position.y, -0.8, 0.1);
-        shoeRight.position.y = THREE.MathUtils.lerp(shoeRight.position.y, -0.8, 0.1);
+        shoeLeft.position.y = THREE.MathUtils.lerp(shoeLeft.position.y, shoeBaseY, 0.1);
+        shoeRight.position.y = THREE.MathUtils.lerp(shoeRight.position.y, shoeBaseY, 0.1);
 
         // Mãos em posição idle (pode ser sobreposto por wipe/wave)
         handLeft.position.z = THREE.MathUtils.lerp(handLeft.position.z, handIdleZ, 0.1);
@@ -419,12 +430,13 @@ export default function Home() {
     animate();
 
     const handleResize = () => {
-        if (!threeRef.current) return;
-        const newWidth = window.innerWidth;
-        const newHeight = window.innerHeight;
-        camera.aspect = newWidth / newHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(newWidth, newHeight);
+      if (!threeRef.current) return;
+      const newWidth = window.innerWidth;
+      const newHeight = window.innerHeight;
+      camera.aspect = newWidth / newHeight;
+      camera.updateProjectionMatrix();
+      setCameraForViewport(newWidth, newHeight);
+      renderer.setSize(newWidth, newHeight);
     };
     window.addEventListener('resize', handleResize);
 
