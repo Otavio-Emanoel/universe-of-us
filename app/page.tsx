@@ -16,6 +16,18 @@ export default function Home() {
   // Refs para sincronizar UI (React) -> animação (Three.js)
   const timeRef = useRef(0);
   const weirdUntilRef = useRef(0);
+  const agataSeqRef = useRef({
+    active: false,
+    startedAt: 0,
+    inited: false,
+    wowPlayed: false,
+    musicSwitched: false,
+    starBurstDone: false,
+    baseY: 0,
+    baseRotX: 0,
+    baseRotY: 0,
+    baseRotZ: 0,
+  });
 
   const normalizeName = (s: string) =>
     s
@@ -33,6 +45,16 @@ export default function Home() {
     if (norm === "otavio") {
       setBubbleText("Oxi???? o que voce ta fazendo aqui Otavio? Vai voltar a programar hahahaha");
       weirdUntilRef.current = timeRef.current + 3.8;
+      agataSeqRef.current.active = false;
+    } else if (norm === "agata") {
+      setBubbleText("Que bom ter voce aqui Agata, eu estava te esperando!");
+      weirdUntilRef.current = 0;
+      agataSeqRef.current.active = true;
+      agataSeqRef.current.startedAt = timeRef.current;
+      agataSeqRef.current.inited = false;
+      agataSeqRef.current.wowPlayed = false;
+      agataSeqRef.current.musicSwitched = false;
+      agataSeqRef.current.starBurstDone = false;
     }
   };
 
@@ -78,8 +100,10 @@ export default function Home() {
   const audioUnlockedRef = useRef(false);
   const helloPlayedRef = useRef(false);
   const helloSfxRef = useRef<HTMLAudioElement | null>(null);
+  const wowSfxRef = useRef<HTMLAudioElement | null>(null);
   const bubbleShownRef = useRef(false);
   const musicMutedRef = useRef(false);
+  const musicModeRef = useRef<"calm" | "upbeat">("calm");
 
   const MUSIC_VOL = 0.1;
 
@@ -104,6 +128,8 @@ export default function Home() {
   const startBackgroundMusic = () => {
     if (audioUnlockedRef.current) return;
     audioUnlockedRef.current = true;
+
+    musicModeRef.current = "calm";
 
     const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
     audioCtxRef.current = audioCtx;
@@ -190,6 +216,68 @@ export default function Home() {
     musicTimerRef.current = window.setInterval(schedule, 350);
   };
 
+  const switchToUpbeatMusic = () => {
+    const audioCtx = audioCtxRef.current;
+    const masterGain = masterGainRef.current;
+    if (!audioCtx || !masterGain) return;
+    if (musicModeRef.current === "upbeat") return;
+
+    musicModeRef.current = "upbeat";
+
+    if (musicTimerRef.current) {
+      window.clearInterval(musicTimerRef.current);
+      musicTimerRef.current = null;
+    }
+
+    const melody = [659.25, 783.99, 987.77, 880.0, 783.99, 880.0, 987.77, 1174.66];
+    const bass = [196.0, 220.0, 246.94, 261.63];
+    let m = 0;
+    let b = 0;
+
+    const playNote = (
+      freq: number,
+      when: number,
+      duration = 0.18,
+      type: OscillatorType = "square",
+      vol = 0.42,
+    ) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      const filter = audioCtx.createBiquadFilter();
+
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, when);
+
+      gain.gain.setValueAtTime(0.0001, when);
+      gain.gain.exponentialRampToValueAtTime(vol, when + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, when + duration);
+
+      filter.type = "lowpass";
+      filter.frequency.value = 3200;
+      filter.Q.value = 0.7;
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(masterGain);
+
+      osc.start(when);
+      osc.stop(when + duration + 0.05);
+    };
+
+    const schedule = () => {
+      const now = audioCtx.currentTime + 0.05;
+      playNote(melody[m], now, 0.16, "square", 0.38);
+      m = (m + 1) % melody.length;
+      if (m % 2 === 0) {
+        playNote(bass[b], now, 0.22, "sine", 0.26);
+        b = (b + 1) % bass.length;
+      }
+    };
+
+    schedule();
+    musicTimerRef.current = window.setInterval(schedule, 220);
+  };
+
   const sayHello = () => {
     if (helloPlayedRef.current) return;
     helloPlayedRef.current = true;
@@ -198,6 +286,18 @@ export default function Home() {
       const a = helloSfxRef.current ?? new Audio("/hello-sfx.mp3");
       helloSfxRef.current = a;
       a.volume = 0.9;
+      a.currentTime = 0;
+      void a.play();
+    } catch {
+      // ignore
+    }
+  };
+
+  const sayWow = () => {
+    try {
+      const a = wowSfxRef.current ?? new Audio("/wow.mp3");
+      wowSfxRef.current = a;
+      a.volume = 0.95;
       a.currentTime = 0;
       void a.play();
     } catch {
@@ -585,6 +685,7 @@ export default function Home() {
 
     const dustPool: Particle[] = [];
     const smokePool: Particle[] = [];
+    const starPool: Particle[] = [];
 
     const createPool = (
       pool: Particle[],
@@ -606,6 +707,18 @@ export default function Home() {
 
     createPool(dustPool, 14, dustGeo, makeMat(0xd8c8b2, 0.55), 0.55, 0.55);
     createPool(smokePool, 10, smokeGeo, makeMat(0xffffff, 0.35), 0.35, 0.75);
+
+    const starGeo = new THREE.IcosahedronGeometry(0.08, 0);
+    const starMat = new THREE.MeshStandardMaterial({
+      color: 0xfff2a8,
+      emissive: 0xffe38a,
+      emissiveIntensity: 0.9,
+      roughness: 0.55,
+      metalness: 0,
+      transparent: true,
+      opacity: 0.95,
+    });
+    createPool(starPool, 26, starGeo, starMat, 0.95, 0.9);
 
     const tmpWorld = new THREE.Vector3();
     const spawnFromPool = (pool: Particle[], pos: THREE.Vector3, vel: THREE.Vector3) => {
@@ -683,6 +796,7 @@ export default function Home() {
       // Atualiza partículas sempre (as ativas vão sumir naturalmente)
       updatePool(dustPool, dt);
       updatePool(smokePool, dt);
+      updatePool(starPool, dt);
 
 
       // --- ANIMAÇÃO DE PISCAR (com override do suspiro) ---
@@ -1070,6 +1184,102 @@ export default function Home() {
         }
       }
 
+      // --- Sequência especial: Ágata (feliz + pulo + estrelas + dança + música animada) ---
+      const ag = agataSeqRef.current;
+      if (ag.active) {
+        if (!ag.inited) {
+          ag.inited = true;
+          if (!ag.startedAt) ag.startedAt = time;
+          ag.baseY = dollGroup.position.y;
+          ag.baseRotX = dollGroup.rotation.x;
+          ag.baseRotY = dollGroup.rotation.y;
+          ag.baseRotZ = dollGroup.rotation.z;
+        }
+
+        if (!ag.wowPlayed) {
+          ag.wowPlayed = true;
+          sayWow();
+        }
+
+        // Expressão feliz (sem sobrancelhas)
+        browLeft.scale.lerp(browHiddenScale, 0.25);
+        browRight.scale.lerp(browHiddenScale, 0.25);
+        browLeft.visible = false;
+        browRight.visible = false;
+        mouthLine.visible = false;
+        mouth.visible = true;
+        mouth.scale.lerp(new THREE.Vector3(0.11, 0.085, 0.07), 0.22);
+        eyeLeft.scale.x = THREE.MathUtils.lerp(eyeLeft.scale.x, eyeBaseScale.x * 1.02, 0.2);
+        eyeLeft.scale.y = THREE.MathUtils.lerp(eyeLeft.scale.y, eyeBaseScale.y * 1.06, 0.2);
+        eyeRight.scale.x = THREE.MathUtils.lerp(eyeRight.scale.x, eyeBaseScale.x * 1.02, 0.2);
+        eyeRight.scale.y = THREE.MathUtils.lerp(eyeRight.scale.y, eyeBaseScale.y * 1.06, 0.2);
+
+        const elapsed = time - ag.startedAt;
+        const jumpDur = 0.75;
+
+        const spawnStarBurst = (count: number, strength: number) => {
+          head.getWorldPosition(tmpWorld);
+          for (let i = 0; i < count; i++) {
+            const vel = new THREE.Vector3(
+              (Math.random() - 0.5) * 1.6,
+              0.9 + Math.random() * 1.2,
+              (Math.random() - 0.5) * 1.2,
+            ).multiplyScalar(strength * (0.9 + Math.random() * 0.6));
+            const pos = tmpWorld
+              .clone()
+              .add(new THREE.Vector3((Math.random() - 0.5) * 0.22, 0.08 + Math.random() * 0.12, 0));
+            spawnFromPool(starPool, pos, vel);
+          }
+        };
+
+        if (elapsed < jumpDur) {
+          const u = clamp01(elapsed / jumpDur);
+          const yOff = Math.sin(u * Math.PI) * 0.55;
+          dollGroup.position.y = ag.baseY + yOff;
+          dollGroup.rotation.z = ag.baseRotZ + Math.sin(u * Math.PI) * 0.12;
+
+          if (!ag.starBurstDone && elapsed > 0.05) {
+            ag.starBurstDone = true;
+            spawnStarBurst(14, 1.2);
+          }
+          if (elapsed > 0.18 && elapsed < 0.6) {
+            spawnStarBurst(3, 0.9);
+          }
+        } else {
+          if (!ag.musicSwitched) {
+            ag.musicSwitched = true;
+            switchToUpbeatMusic();
+          }
+
+          const d = elapsed - jumpDur;
+          dollGroup.position.y = ag.baseY + Math.sin(d * 10) * 0.06;
+          dollGroup.rotation.z = ag.baseRotZ + Math.sin(d * 6) * 0.18;
+          dollGroup.rotation.y = ag.baseRotY + Math.sin(d * 3.2) * 0.08;
+
+          // Braços e passinhos de dança
+          const arm = 0.5 + 0.5 * Math.sin(d * 8);
+          handLeft.position.set(
+            handIdleXLeft - 0.12,
+            THREE.MathUtils.lerp(handIdleY, 0.55, arm),
+            THREE.MathUtils.lerp(handIdleZ, 0.95, arm),
+          );
+          handRight.position.set(
+            handIdleXRight + 0.12,
+            THREE.MathUtils.lerp(handIdleY, 0.62, 1 - arm),
+            THREE.MathUtils.lerp(handIdleZ, 0.95, 1 - arm),
+          );
+
+          shoeLeft.position.y = shoeBaseY + Math.max(0, Math.sin(d * 10)) * (shoeStepLift * 1.25);
+          shoeRight.position.y = shoeBaseY + Math.max(0, Math.sin(d * 10 + Math.PI)) * (shoeStepLift * 1.25);
+          shoeLeft.position.z = Math.sin(d * 10) * 0.18;
+          shoeRight.position.z = Math.sin(d * 10 + Math.PI) * 0.18;
+
+          if (Math.sin(d * 9) > 0.75) {
+            spawnStarBurst(2, 0.75);
+          }
+        }
+      }
+
       renderer.render(scene, camera);
     }
     // Inicializar blinkTimer para o primeiro piscar
@@ -1135,6 +1345,16 @@ export default function Home() {
         }
         helloSfxRef.current = null;
       }
+      const wow = wowSfxRef.current;
+      if (wow) {
+        try {
+          wow.pause();
+          wow.currentTime = 0;
+        } catch {
+          // ignore
+        }
+        wowSfxRef.current = null;
+      }
       audioUnlockedRef.current = false;
     };
   }, []);
@@ -1150,6 +1370,13 @@ export default function Home() {
         a.volume = 0.9;
         helloSfxRef.current = a;
         a.load();
+      }
+      if (!wowSfxRef.current) {
+        const w = new Audio("/wow.mp3");
+        w.preload = "auto";
+        w.volume = 0.95;
+        wowSfxRef.current = w;
+        w.load();
       }
     } catch {
       // ignore
