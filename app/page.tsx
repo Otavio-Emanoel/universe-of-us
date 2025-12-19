@@ -12,12 +12,16 @@ export default function Home() {
   const [bubbleText, setBubbleText] = useState("Oiiiii como é o seu nome?");
   const [nameLocked, setNameLocked] = useState(false);
   const [musicMuted, setMusicMuted] = useState(false);
-  const [bubbleStage, setBubbleStage] = useState<"name" | "proceed" | "story" | "choices">("name");
+  const [bubbleStage, setBubbleStage] = useState<
+    "name" | "proceed" | "story" | "choices" | "otavioSorry" | "otavioRestart"
+  >("name");
   const [choice, setChoice] = useState<null | "go" | "stay">(null);
   const [isTypingBubble, setIsTypingBubble] = useState(false);
   const initRef = useRef(false);
 
-  const bubbleStageRef = useRef<"name" | "proceed" | "story" | "choices">("name");
+  const bubbleStageRef = useRef<
+    "name" | "proceed" | "story" | "choices" | "otavioSorry" | "otavioRestart"
+  >("name");
   const choiceRef = useRef<null | "go" | "stay">(null);
 
   // Refs para sincronizar UI (React) -> animação (Three.js)
@@ -39,6 +43,7 @@ export default function Home() {
   const bubbleTypingTimerRef = useRef<number | null>(null);
   const bubbleTypingDoneRef = useRef<null | (() => void)>(null);
   const proceedTimerRef = useRef<number | null>(null);
+  const otavioSorryTimerRef = useRef<number | null>(null);
   const quakeSeqRef = useRef({
     active: false,
     restore: false,
@@ -75,6 +80,19 @@ export default function Home() {
     done: false,
   });
 
+  const otavioPartyRef = useRef({
+    active: false,
+    stage: "flip" as "flip" | "dance",
+    startedAt: 0,
+    inited: false,
+    baseX: 0,
+    baseY: 0,
+    baseZ: 0,
+    baseRotX: 0,
+    baseRotY: 0,
+    baseRotZ: 0,
+  });
+
   const setBubbleTyped = (text: string, onDone?: () => void) => {
     bubbleTypingDoneRef.current = onDone ?? null;
     setBubbleTargetText(text);
@@ -98,6 +116,15 @@ export default function Home() {
       setBubbleTyped("Oxi???? o que voce ta fazendo aqui Otavio? Vai voltar a programar hahahaha");
       weirdUntilRef.current = timeRef.current + 3.8;
       agataSeqRef.current.active = false;
+      sayAlert();
+
+      if (otavioSorryTimerRef.current) {
+        window.clearTimeout(otavioSorryTimerRef.current);
+        otavioSorryTimerRef.current = null;
+      }
+      otavioSorryTimerRef.current = window.setTimeout(() => {
+        setBubbleStage("otavioSorry");
+      }, 3800);
     } else if (norm === "agata") {
       setBubbleStage("proceed");
       setBubbleTyped("Que bom ter voce aqui agata, eu estava te esperando!");
@@ -141,6 +168,34 @@ export default function Home() {
         },
       );
     }, 3800);
+  };
+
+  const handleOtavioSorry = () => {
+    setShowSpeechBubble(false);
+    setBubbleStage("otavioRestart");
+
+    // Desliga outras sequências que podem interferir
+    weirdUntilRef.current = 0;
+    agataSeqRef.current.active = false;
+    quakeSeqRef.current.active = false;
+    quakeSeqRef.current.restore = false;
+    panicRef.current.active = false;
+    panicRef.current.pendingStart = false;
+    goReturnRef.current.active = false;
+
+    // Mortal + dança
+    otavioPartyRef.current.active = true;
+    otavioPartyRef.current.stage = "flip";
+    otavioPartyRef.current.startedAt = timeRef.current;
+    otavioPartyRef.current.inited = false;
+
+    // Música: troca para chicken-song
+    stopWebMusic();
+    startChickenSong();
+  };
+
+  const handleRestart = () => {
+    window.location.reload();
   };
 
   const handleChoice = (c: "go" | "stay") => {
@@ -257,15 +312,24 @@ export default function Home() {
   const helloPlayedRef = useRef(false);
   const helloSfxRef = useRef<HTMLAudioElement | null>(null);
   const wowSfxRef = useRef<HTMLAudioElement | null>(null);
+  const alertSfxRef = useRef<HTMLAudioElement | null>(null);
+  const chickenSfxRef = useRef<HTMLAudioElement | null>(null);
   const bubbleShownRef = useRef(false);
   const musicMutedRef = useRef(false);
   const musicModeRef = useRef<"calm" | "upbeat">("calm");
 
   const MUSIC_VOL = 0.1;
+  const SFX_VOL = 0.9;
 
   const applyMusicMute = (muted: boolean) => {
     musicMutedRef.current = muted;
     setMusicMuted(muted);
+
+    const sfxVol = muted ? 0 : SFX_VOL;
+    if (helloSfxRef.current) helloSfxRef.current.volume = sfxVol;
+    if (wowSfxRef.current) wowSfxRef.current.volume = sfxVol;
+    if (alertSfxRef.current) alertSfxRef.current.volume = sfxVol;
+    if (chickenSfxRef.current) chickenSfxRef.current.volume = sfxVol;
 
     const ctx = audioCtxRef.current;
     const gain = masterGainRef.current;
@@ -278,6 +342,36 @@ export default function Home() {
     } catch {
       gain.gain.value = muted ? 0 : MUSIC_VOL;
     }
+  };
+
+  const stopWebMusic = () => {
+    if (musicTimerRef.current) {
+      window.clearInterval(musicTimerRef.current);
+      musicTimerRef.current = null;
+    }
+    const ctx = audioCtxRef.current;
+    audioCtxRef.current = null;
+    masterGainRef.current = null;
+    if (ctx) {
+      ctx.close().catch(() => {});
+    }
+  };
+
+  const startChickenSong = () => {
+    let a = chickenSfxRef.current;
+    if (!a) {
+      a = new Audio("/chicken-song.mp3");
+      a.loop = true;
+      a.preload = "auto";
+      a.volume = musicMutedRef.current ? 0 : SFX_VOL;
+      chickenSfxRef.current = a;
+    }
+    try {
+      a.currentTime = 0;
+    } catch {
+      // ignore
+    }
+    a.play().catch(() => {});
   };
 
   // --- Música fofinha estilo joguinho ---
@@ -441,7 +535,7 @@ export default function Home() {
     try {
       const a = helloSfxRef.current ?? new Audio("/hello-sfx.mp3");
       helloSfxRef.current = a;
-      a.volume = 0.9;
+      a.volume = musicMutedRef.current ? 0 : SFX_VOL;
       a.currentTime = 0;
       void a.play();
     } catch {
@@ -453,7 +547,19 @@ export default function Home() {
     try {
       const a = wowSfxRef.current ?? new Audio("/wow.mp3");
       wowSfxRef.current = a;
-      a.volume = 0.95;
+      a.volume = musicMutedRef.current ? 0 : SFX_VOL;
+      a.currentTime = 0;
+      void a.play();
+    } catch {
+      // ignore
+    }
+  };
+
+  const sayAlert = () => {
+    try {
+      const a = alertSfxRef.current ?? new Audio("/alert.mp3");
+      alertSfxRef.current = a;
+      a.volume = musicMutedRef.current ? 0 : SFX_VOL;
       a.currentTime = 0;
       void a.play();
     } catch {
@@ -1007,13 +1113,13 @@ export default function Home() {
         // --- SOBRANCELHA ESQUERDA (Baixa/Desconfiada) ---
         // Desce um pouco e fica mais "reta"
         browLeft.position.x = THREE.MathUtils.lerp(browLeft.position.x, -0.52, 0.2);
-        browLeft.position.y = THREE.MathUtils.lerp(browLeft.position.y, 1.25, 0.2); // Mais baixa
+        browLeft.position.y = THREE.MathUtils.lerp(browLeft.position.y, 0.27, 0.2); // Mais baixa (base ~0.34)
         browLeft.rotation.z = THREE.MathUtils.lerp(browLeft.rotation.z, 0.1, 0.2); // Quase reta
 
         // --- SOBRANCELHA DIREITA (Levantada/Questionando) ---
         // Sobe bem alto e arqueia
         browRight.position.x = THREE.MathUtils.lerp(browRight.position.x, 0.52, 0.2);
-        browRight.position.y = THREE.MathUtils.lerp(browRight.position.y, 1.55, 0.2); // Bem alta
+        browRight.position.y = THREE.MathUtils.lerp(browRight.position.y, 0.44, 0.2); // Bem alta (base ~0.34)
         browRight.rotation.z = THREE.MathUtils.lerp(browRight.rotation.z, 0.4, 0.2); // Arqueada
 
         // --- OLHOS (Sem deformar demais) ---
@@ -1033,7 +1139,8 @@ export default function Home() {
 
         // Boca fica reta, mas move levemente para o lado da sobrancelha levantada (charme)
         mouthLine.position.x = THREE.MathUtils.lerp(mouthLine.position.x, 0.05, 0.1);
-        mouthLine.position.y = 0.86;
+        // Coordenadas locais do headPivot (base é ~-0.14). Se ficar alto demais, é porque mudou o pivot.
+        mouthLine.position.y = THREE.MathUtils.lerp(mouthLine.position.y, -0.12, 0.2);
 
         // Leve escala na boca falando
         const talk = 0.5 + 0.5 * Math.sin(time * 20); // Fala rápida
@@ -1055,8 +1162,8 @@ export default function Home() {
         }
 
         // Reseta posição das sobrancelhas para a próxima vez
-        browLeft.position.y = THREE.MathUtils.lerp(browLeft.position.y, 1.34, 0.2);
-        browRight.position.y = THREE.MathUtils.lerp(browRight.position.y, 1.34, 0.2);
+        browLeft.position.y = THREE.MathUtils.lerp(browLeft.position.y, 0.34, 0.2);
+        browRight.position.y = THREE.MathUtils.lerp(browRight.position.y, 0.34, 0.2);
 
         // Olhos voltam ao formato base
         eyeLeft.scale.lerp(eyeBaseScale, 0.15);
@@ -1069,6 +1176,7 @@ export default function Home() {
 
         // Reset da posição da boca de linha
         mouthLine.position.x = 0;
+        mouthLine.position.y = THREE.MathUtils.lerp(mouthLine.position.y, -0.14, 0.2);
         mouthLine.scale.set(1, 1, 1);
       }
 
@@ -1730,6 +1838,77 @@ export default function Home() {
         }
       }
 
+        // --- Otavio: mortal pra trás + dança (após clicar "Desculpa") ---
+        const op = otavioPartyRef.current;
+        if (op.active) {
+          if (!op.inited) {
+            op.inited = true;
+            op.baseX = dollGroup.position.x;
+            op.baseY = dollGroup.position.y;
+            op.baseZ = dollGroup.position.z;
+            op.baseRotX = dollGroup.rotation.x;
+            op.baseRotY = dollGroup.rotation.y;
+            op.baseRotZ = dollGroup.rotation.z;
+          }
+
+          const elapsed = time - op.startedAt;
+
+          if (op.stage === "flip") {
+            const dur = 1.05;
+            const u = smooth01(Math.min(elapsed / dur, 1));
+
+            dollGroup.position.x = op.baseX;
+            dollGroup.position.z = THREE.MathUtils.lerp(op.baseZ, op.baseZ - 1.6, u);
+            dollGroup.position.y = op.baseY + Math.sin(u * Math.PI) * 1.05;
+
+            // Mortal para trás: rotação em X negativa (2π)
+            dollGroup.rotation.x = op.baseRotX - u * Math.PI * 2;
+            dollGroup.rotation.y = op.baseRotY;
+            dollGroup.rotation.z = op.baseRotZ;
+
+            // Membros "recolhem" um pouco durante o mortal
+            handLeft.position.set(handIdleXLeft * 0.8, -0.05, 0.2);
+            handRight.position.set(handIdleXRight * 0.8, -0.05, 0.2);
+            shoeLeft.position.z = 0.25;
+            shoeRight.position.z = 0.25;
+            shoeLeft.position.y = shoeBaseY + 0.2;
+            shoeRight.position.y = shoeBaseY + 0.2;
+
+            if (elapsed >= dur) {
+              // "Aterrissa" já um pouco atrás e começa a dançar
+              op.stage = "dance";
+              op.startedAt = time;
+              op.baseZ = op.baseZ - 1.6;
+              dollGroup.rotation.x = op.baseRotX;
+            }
+          } else {
+            const d = elapsed;
+            dollGroup.position.x = op.baseX;
+            dollGroup.position.z = op.baseZ;
+            dollGroup.position.y = op.baseY + Math.sin(d * 10) * 0.06;
+            dollGroup.rotation.x = THREE.MathUtils.lerp(dollGroup.rotation.x, op.baseRotX, 0.25);
+            dollGroup.rotation.z = op.baseRotZ + Math.sin(d * 6) * 0.18;
+            dollGroup.rotation.y = op.baseRotY + Math.sin(d * 3.2) * 0.08;
+
+            const arm = 0.5 + 0.5 * Math.sin(d * 8);
+            handLeft.position.set(
+              handIdleXLeft - 0.12,
+              THREE.MathUtils.lerp(handIdleY, 0.55, arm),
+              THREE.MathUtils.lerp(handIdleZ, 0.95, arm),
+            );
+            handRight.position.set(
+              handIdleXRight + 0.12,
+              THREE.MathUtils.lerp(handIdleY, 0.62, 1 - arm),
+              THREE.MathUtils.lerp(handIdleZ, 0.95, 1 - arm),
+            );
+
+            shoeLeft.position.y = shoeBaseY + Math.max(0, Math.sin(d * 10)) * (shoeStepLift * 1.25);
+            shoeRight.position.y = shoeBaseY + Math.max(0, Math.sin(d * 10 + Math.PI)) * (shoeStepLift * 1.25);
+            shoeLeft.position.z = Math.sin(d * 10) * 0.18;
+            shoeRight.position.z = Math.sin(d * 10 + Math.PI) * 0.18;
+          }
+        }
+
       renderer.render(scene, camera);
     }
     // Inicializar blinkTimer para o primeiro piscar
@@ -1783,6 +1962,10 @@ export default function Home() {
         window.clearTimeout(proceedTimerRef.current);
         proceedTimerRef.current = null;
       }
+      if (otavioSorryTimerRef.current) {
+        window.clearTimeout(otavioSorryTimerRef.current);
+        otavioSorryTimerRef.current = null;
+      }
       if (bubbleTypingTimerRef.current) {
         window.clearInterval(bubbleTypingTimerRef.current);
         bubbleTypingTimerRef.current = null;
@@ -1816,6 +1999,28 @@ export default function Home() {
         }
         wowSfxRef.current = null;
       }
+
+      const alert = alertSfxRef.current;
+      if (alert) {
+        try {
+          alert.pause();
+          alert.currentTime = 0;
+        } catch {
+          // ignore
+        }
+        alertSfxRef.current = null;
+      }
+
+      const chicken = chickenSfxRef.current;
+      if (chicken) {
+        try {
+          chicken.pause();
+          chicken.currentTime = 0;
+        } catch {
+          // ignore
+        }
+        chickenSfxRef.current = null;
+      }
       audioUnlockedRef.current = false;
     };
   }, []);
@@ -1828,16 +2033,23 @@ export default function Home() {
       if (!helloSfxRef.current) {
         const a = new Audio("/hello-sfx.mp3");
         a.preload = "auto";
-        a.volume = 0.9;
+        a.volume = musicMutedRef.current ? 0 : SFX_VOL;
         helloSfxRef.current = a;
         a.load();
       }
       if (!wowSfxRef.current) {
         const w = new Audio("/wow.mp3");
         w.preload = "auto";
-        w.volume = 0.95;
+        w.volume = musicMutedRef.current ? 0 : SFX_VOL;
         wowSfxRef.current = w;
         w.load();
+      }
+      if (!alertSfxRef.current) {
+        const al = new Audio("/alert.mp3");
+        al.preload = "auto";
+        al.volume = musicMutedRef.current ? 0 : SFX_VOL;
+        alertSfxRef.current = al;
+        al.load();
       }
     } catch {
       // ignore
@@ -1883,46 +2095,48 @@ export default function Home() {
       className="fixed inset-0 overflow-hidden"
       style={{ background: "linear-gradient(to bottom, #FFF0F5, #FFE4E1)" }}
     >
-      <button
-        type="button"
-        onClick={() => applyMusicMute(!musicMuted)}
-        aria-label={musicMuted ? "Ativar música" : "Mutar música"}
-        title={musicMuted ? "Ativar música" : "Mutar música"}
-        className="pointer-events-auto absolute bottom-4 right-4 z-30 inline-flex h-11 w-11 items-center justify-center rounded-full bg-black/80 text-white backdrop-blur transition-colors hover:bg-black focus:outline-none focus:ring-2 focus:ring-white/40"
-      >
-        <span className="sr-only">{musicMuted ? "Ativar música" : "Mutar música"}</span>
-        {musicMuted ? (
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="h-5 w-5"
-          >
-            <path d="M11 5 6 9H2v6h4l5 4V5z" />
-            <path d="M23 9l-6 6" />
-            <path d="M17 9l6 6" />
-          </svg>
-        ) : (
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="h-5 w-5"
-          >
-            <path d="M11 5 6 9H2v6h4l5 4V5z" />
-            <path d="M15.5 8.5a5 5 0 0 1 0 7" />
-            <path d="M18.5 5.5a9 9 0 0 1 0 13" />
-          </svg>
-        )}
-      </button>
+      {bubbleStage !== "otavioRestart" ? (
+        <button
+          type="button"
+          onClick={() => applyMusicMute(!musicMuted)}
+          aria-label={musicMuted ? "Ativar música" : "Mutar música"}
+          title={musicMuted ? "Ativar música" : "Mutar música"}
+          className="pointer-events-auto absolute bottom-4 right-4 z-30 inline-flex h-11 w-11 items-center justify-center rounded-full bg-black/80 text-white backdrop-blur transition-colors hover:bg-black focus:outline-none focus:ring-2 focus:ring-white/40"
+        >
+          <span className="sr-only">{musicMuted ? "Ativar música" : "Mutar música"}</span>
+          {musicMuted ? (
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-5 w-5"
+            >
+              <path d="M11 5 6 9H2v6h4l5 4V5z" />
+              <path d="M23 9l-6 6" />
+              <path d="M17 9l6 6" />
+            </svg>
+          ) : (
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-5 w-5"
+            >
+              <path d="M11 5 6 9H2v6h4l5 4V5z" />
+              <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+              <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+            </svg>
+          )}
+        </button>
+      ) : null}
 
       {started && showSpeechBubble ? (
         <div className="pointer-events-auto absolute left-1/2 top-8 z-20 w-[min(92vw,420px)] -translate-x-1/2">
@@ -1998,8 +2212,33 @@ export default function Home() {
                 </button>
               </div>
             ) : null}
+
+            {bubbleStage === "otavioSorry" ? (
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={handleOtavioSorry}
+                  disabled={isTypingBubble}
+                  className="w-full rounded-xl bg-black px-4 py-3 text-base font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Desculpa
+                </button>
+              </div>
+            ) : null}
             <div className="absolute left-10 top-full h-4 w-4 -translate-y-2 rotate-45 border-b border-r border-zinc-200 bg-white/90" />
           </div>
+        </div>
+      ) : null}
+
+      {started && bubbleStage === "otavioRestart" ? (
+        <div className="pointer-events-auto absolute inset-0 z-40 flex items-start justify-center m-10">
+          <button
+            type="button"
+            onClick={handleRestart}
+            className="rounded-full bg-black px-8 py-4 text-base font-semibold text-white transition-colors hover:bg-zinc-800"
+          >
+            Voltar pro início
+          </button>
         </div>
       ) : null}
 
