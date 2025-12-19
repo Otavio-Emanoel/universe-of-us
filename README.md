@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Universe for Us
 
-## Getting Started
+Uma historinha 3D interativa feita com Three.js: uma personagem fofinha, narrativa com escolhas, um foguete (por dentro!) e uma jornada até as estrelas.
 
-First, run the development server:
+## O que tem aqui
+
+- Cena 3D com Three.js (App Router do Next.js)
+- Personagem “fofa” feita de primitivas + animações e expressões
+- Fluxo narrativo com balões (texto digitando), escolhas e áudio
+- Interior do foguete com mesas/PCs, botão LAUNCH e uma “janela” dinâmica (céu → espaço)
+- Página extra `/stars` (tela preta) após a sequência “Olhar estrelas”
+
+## Rodando localmente
+
+Pré-requisitos: Node.js + npm.
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abra http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Estrutura do projeto
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `app/page.tsx`: a experiência 3D + narrativa (quase tudo está aqui)
+- `app/layout.tsx`: metadata (título/descrição/ícone)
+- `app/stars/page.tsx`: página final (tela preta)
+- `public/`: imagens e áudios (ex.: `pc.jpg`, `astronauta.png`, `alert.mp3`, `omaiga.mp3`)
 
-## Learn More
+## Dicas
 
-To learn more about Next.js, take a look at the following resources:
+- O botão de mute fica no canto inferior direito.
+- Alguns navegadores exigem clique inicial para liberar áudio.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Stack
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Next.js (App Router) + React + TypeScript
+- Three.js
+- Tailwind CSS

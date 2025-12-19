@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="Universe for Us">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#1f2a44"/>
+    </linearGradient>
+    <linearGradient id="flame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff2a8"/>
+      <stop offset="1" stop-color="#ef4444"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="256" height="256" rx="56" fill="url(#bg)"/>
+
+  <!-- estrelas -->
+  <circle cx="64" cy="76" r="3" fill="#ffffff" opacity="0.9"/>
+  <circle cx="92" cy="56" r="2" fill="#ffffff" opacity="0.85"/>
+  <circle cx="188" cy="72" r="3" fill="#ffffff" opacity="0.9"/>
+  <circle cx="172" cy="108" r="2" fill="#ffffff" opacity="0.85"/>
+  <circle cx="210" cy="120" r="2" fill="#ffffff" opacity="0.8"/>
+
+  <!-- foguete minimalista -->
+  <g transform="translate(0,2)">
+    <path d="M128 44c-20 16-32 42-32 68v34c0 8 6 14 14 14h36c8 0 14-6 14-14v-34c0-26-12-52-32-68z" fill="#e5e7eb"/>
+    <path d="M128 44c-20 16-32 42-32 68v34c0 8 6 14 14 14h36c8 0 14-6 14-14v-34c0-26-12-52-32-68z" fill="#ffffff" opacity="0.35"/>
+
+    <circle cx="128" cy="110" r="14" fill="#0b1220" opacity="0.95"/>
+    <circle cx="128" cy="110" r="10" fill="#60a5fa" opacity="0.9"/>
+
+    <path d="M96 152l-18 14 8-26z" fill="#9ca3af"/>
+    <path d="M160 152l18 14-8-26z" fill="#9ca3af"/>
+
+    <path d="M118 160h20v18c0 6-4 10-10 10s-10-4-10-10z" fill="#111827"/>
+    <path d="M128 176c-6 14-16 22-16 22s10 8 16 8 16-8 16-8-10-8-16-22z" fill="url(#flame)"/>
+  </g>
+</svg>
