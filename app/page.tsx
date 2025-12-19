@@ -1160,7 +1160,10 @@ export default function Home() {
 
     // Botão LAUNCH (grande, vermelho) - mais bonito
     const launchConsole = new THREE.Group();
-    launchConsole.position.set(0, -1.42, -0.25);
+    // Um pouco mais perto e inclinado para leitura melhor
+    launchConsole.position.set(0, -1.42, 1.25);
+    // Rotação positiva inclina o topo NA direção da câmera (melhor pra ler)
+    launchConsole.rotation.x = 0.42;
     rocketInterior.add(launchConsole);
 
     const consoleBase = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.72, 0.35, 22), new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.9, metalness: 0.05 }));
@@ -1245,6 +1248,8 @@ export default function Home() {
         ls.shakeUntil = timeRef.current + ls.shakeDur;
         ls.dropsUntil = timeRef.current + 2.2;
         ls.dropsAcc = 0;
+
+        switchToUpbeatMusic();
 
         sayOmaiga();
 
