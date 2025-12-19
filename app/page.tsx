@@ -12,7 +12,8 @@ export default function Home() {
     const width = window.innerWidth;
     const height = window.innerHeight;
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xFFF0F5); // Lavender Blush
+    // Céu suave (o fundo em si será um skydome com gradiente)
+    scene.background = new THREE.Color(0xbfe8ff);
 
     const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -24,7 +25,7 @@ export default function Home() {
       // Em telas menores, afasta mais a câmera para não ficar “gigante” no celular.
       const t = THREE.MathUtils.clamp((768 - w) / 768, 0, 1);
       const z = 6 + t * 6; // 6 (desktop) -> ~12 (mobile)
-      const y = 0.5 + t * 0.15;
+      const y = 1 + t * 0.4;
       camera.position.set(0, y, z);
       camera.lookAt(0, 0.6, 0);
     };
@@ -39,6 +40,121 @@ export default function Home() {
     const frontLight = new THREE.DirectionalLight(0xffffff, 0.5);
     frontLight.position.set(2, 5, 5);
     scene.add(frontLight);
+
+    // Luz do “sol” por trás para dar profundidade
+    const backLight = new THREE.DirectionalLight(0xffffff, 0.35);
+    backLight.position.set(-6, 4, -8);
+    scene.add(backLight);
+
+    // Névoa leve para dar sensação de distância na floresta
+    scene.fog = new THREE.Fog(0xbfe8ff, 10, 55);
+
+    // --- Cenário: Céu (gradiente), chão e floresta ---
+    const skyGeo = new THREE.SphereGeometry(120, 48, 24);
+    const skyMat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      uniforms: {
+        topColor: { value: new THREE.Color(0x9fdcff) },
+        bottomColor: { value: new THREE.Color(0xeaf8ff) },
+        offset: { value: 18.0 },
+        exponent: { value: 0.8 },
+      },
+      vertexShader: `
+        varying vec3 vWorldPosition;
+        void main() {
+          vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+          vWorldPosition = worldPosition.xyz;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 topColor;
+        uniform vec3 bottomColor;
+        uniform float offset;
+        uniform float exponent;
+        varying vec3 vWorldPosition;
+        void main() {
+          float h = normalize(vWorldPosition + vec3(0.0, offset, 0.0)).y;
+          float t = pow(max(h, 0.0), exponent);
+          gl_FragColor = vec4(mix(bottomColor, topColor, t), 1.0);
+        }
+      `,
+    });
+    const sky = new THREE.Mesh(skyGeo, skyMat);
+    scene.add(sky);
+
+    // Chão
+    const groundGeo = new THREE.PlaneGeometry(220, 220, 1, 1);
+    const groundMat = new THREE.MeshStandardMaterial({
+      color: 0x8ee07f,
+      roughness: 1,
+      metalness: 0,
+    });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -1.42;
+    ground.position.z = -5;
+    scene.add(ground);
+
+    // Floresta estilizada (árvores simples)
+    const forest = new THREE.Group();
+    scene.add(forest);
+
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x8b5a3c, roughness: 1, metalness: 0 });
+    const leafMat1 = new THREE.MeshStandardMaterial({ color: 0x5fd07a, roughness: 1, metalness: 0 });
+    const leafMat2 = new THREE.MeshStandardMaterial({ color: 0x4cbc67, roughness: 1, metalness: 0 });
+
+    const trunkGeo = new THREE.CylinderGeometry(0.12, 0.16, 1.4, 10);
+    const leafGeo = new THREE.SphereGeometry(0.7, 18, 18);
+    const leafSmallGeo = new THREE.SphereGeometry(0.55, 18, 18);
+
+    const createTree = (x: number, z: number, s: number, variant: 1 | 2) => {
+      const g = new THREE.Group();
+
+      const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+      trunk.position.y = 0.7;
+      g.add(trunk);
+
+      const leafMat = variant === 1 ? leafMat1 : leafMat2;
+
+      const crown1 = new THREE.Mesh(leafGeo, leafMat);
+      crown1.position.set(0, 1.55, 0);
+      const crown2 = new THREE.Mesh(leafSmallGeo, leafMat);
+      crown2.position.set(-0.35, 1.35, 0.1);
+      const crown3 = new THREE.Mesh(leafSmallGeo, leafMat);
+      crown3.position.set(0.38, 1.32, -0.05);
+      g.add(crown1, crown2, crown3);
+
+      g.position.set(x, -1.42, z);
+      g.scale.setScalar(s);
+      return g;
+    };
+
+    // Camada distante
+    for (let i = 0; i < 18; i++) {
+      const x = -28 + i * 3.2 + (Math.random() - 0.5) * 1.2;
+      const z = -42 + (Math.random() - 0.5) * 5;
+      const s = 1.25 + Math.random() * 0.7;
+      forest.add(createTree(x, z, s, i % 2 === 0 ? 1 : 2));
+    }
+
+    // Camada média
+    for (let i = 0; i < 14; i++) {
+      const x = -18 + i * 2.8 + (Math.random() - 0.5) * 1.6;
+      const z = -22 + (Math.random() - 0.5) * 5;
+      const s = 1.05 + Math.random() * 0.55;
+      forest.add(createTree(x, z, s, i % 2 === 0 ? 2 : 1));
+    }
+
+    // Alguns arbustos (bolinhas) perto do chão
+    const bushGeo = new THREE.SphereGeometry(0.55, 18, 18);
+    const bushMat = new THREE.MeshStandardMaterial({ color: 0x62d88a, roughness: 1, metalness: 0 });
+    for (let i = 0; i < 10; i++) {
+      const b = new THREE.Mesh(bushGeo, bushMat);
+      b.position.set(-6 + i * 1.2 + (Math.random() - 0.5) * 0.8, -0.95, -10 - Math.random() * 4);
+      b.scale.setScalar(0.7 + Math.random() * 0.55);
+      forest.add(b);
+    }
 
     // --- 3. Materiais ---
     const matSettings = { roughness: 0.8, metalness: 0.0 };
