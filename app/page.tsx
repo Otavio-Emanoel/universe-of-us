@@ -1,12 +1,153 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 
 export default function Home() {
   const threeRef = useRef<HTMLDivElement>(null);
+  const [started, setStarted] = useState(false);
+  const [startHiding, setStartHiding] = useState(false);
+  const initRef = useRef(false);
+
+  // --- Áudio (Web Audio + SpeechSynthesis) ---
+  // Browsers bloqueiam autoplay: iniciamos no clique do botão Start.
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const masterGainRef = useRef<GainNode | null>(null);
+  const musicTimerRef = useRef<number | null>(null);
+  const audioUnlockedRef = useRef(false);
+  const helloPlayedRef = useRef(false);
+
+  // --- Música fofinha estilo joguinho ---
+  const startBackgroundMusic = () => {
+    if (audioUnlockedRef.current) return;
+    audioUnlockedRef.current = true;
+
+    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    audioCtxRef.current = audioCtx;
+
+    const masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.1;
+    masterGain.connect(audioCtx.destination);
+    masterGainRef.current = masterGain;
+
+    // 🎵 Melodia principal (music box)
+    const melody = [
+      659.25, // E5
+      783.99, // G5
+      880.0,  // A5
+      783.99,
+      659.25,
+      587.33, // D5
+      523.25, // C5
+      587.33,
+    ];
+
+    // 🎶 Baixo fofinho
+    const bass = [
+      261.63, // C4
+      329.63, // E4
+      392.0,  // G4
+      329.63,
+    ];
+
+    let m = 0;
+    let b = 0;
+
+    const playNote = (
+      freq: number,
+      when: number,
+      duration = 0.3,
+      type: OscillatorType = "triangle",
+      vol = 0.5
+    ) => {
+      if (!audioCtx || !masterGain) return;
+
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      const filter = audioCtx.createBiquadFilter();
+
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, when);
+
+      // envelope fofinho ✨
+      gain.gain.setValueAtTime(0.0001, when);
+      gain.gain.exponentialRampToValueAtTime(vol, when + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, when + duration);
+
+      // deixa a música macia
+      filter.type = "lowpass";
+      filter.frequency.value = 2000;
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(masterGain);
+
+      osc.start(when);
+      osc.stop(when + duration + 0.05);
+    };
+
+    const schedule = () => {
+      if (!audioCtx) return;
+
+      const now = audioCtx.currentTime + 0.05;
+
+      // melodia
+      playNote(melody[m], now, 0.28, "triangle", 0.5);
+      m = (m + 1) % melody.length;
+
+      // baixo (mais lento)
+      if (m % 2 === 0) {
+        playNote(bass[b], now, 0.6, "sine", 0.25);
+        b = (b + 1) % bass.length;
+      }
+    };
+
+    // começa suave
+    schedule();
+    musicTimerRef.current = window.setInterval(schedule, 350);
+  };
+
+  const sayHello = () => {
+    if (helloPlayedRef.current) return;
+    helloPlayedRef.current = true;
+
+    try {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        const u = new SpeechSynthesisUtterance("hello");
+        u.lang = "en-US";
+        u.rate = 0.98;
+        u.pitch = 1.1;
+        u.volume = 1;
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(u);
+      }
+    } catch {
+      // ignore
+    }
+
+    const audioCtx = audioCtxRef.current;
+    const masterGain = masterGainRef.current;
+    if (audioCtx && masterGain) {
+      const t = audioCtx.currentTime + 0.02;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(1100, t);
+      osc.frequency.exponentialRampToValueAtTime(880, t + 0.12);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.35, t + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      osc.connect(gain);
+      gain.connect(masterGain);
+      osc.start(t);
+      osc.stop(t + 0.2);
+    }
+  };
 
   useEffect(() => {
+    if (!started) return;
     if (!threeRef.current) return;
+    if (initRef.current) return;
+    initRef.current = true;
 
     // --- 1. Configuração da Cena ---
     const width = window.innerWidth;
@@ -20,7 +161,7 @@ export default function Home() {
     renderer.setSize(width, height);
     renderer.setPixelRatio(window.devicePixelRatio);
     threeRef.current.appendChild(renderer.domElement);
-    
+
     const setCameraForViewport = (w: number, h: number) => {
       // Em telas menores, afasta mais a câmera para não ficar “gigante” no celular.
       const t = THREE.MathUtils.clamp((768 - w) / 768, 0, 1);
@@ -719,6 +860,8 @@ export default function Home() {
           if (phaseT >= 2) {
             phase = "wave";
             phaseT = 0;
+            // Fala "hello" ao começar a acenar
+            sayHello();
           }
         } else if (phase === "wave") {
           phaseT += dt;
@@ -767,6 +910,14 @@ export default function Home() {
     window.addEventListener('resize', handleResize);
 
     return () => {
+      try {
+        window.speechSynthesis?.cancel();
+      } catch {
+        // ignore
+      }
+
+      initRef.current = false;
+
       window.removeEventListener('resize', handleResize);
       cancelAnimationFrame(frameId);
       renderer.dispose();
@@ -782,7 +933,60 @@ export default function Home() {
         threeRef.current.removeChild(renderer.domElement);
       }
     };
+  }, [started]);
+
+  useEffect(() => {
+    return () => {
+      try {
+        window.speechSynthesis?.cancel();
+      } catch {
+        // ignore
+      }
+      if (musicTimerRef.current) {
+        window.clearInterval(musicTimerRef.current);
+        musicTimerRef.current = null;
+      }
+      const ctx = audioCtxRef.current;
+      if (ctx) {
+        ctx.close().catch(() => {});
+        audioCtxRef.current = null;
+      }
+      audioUnlockedRef.current = false;
+    };
   }, []);
 
-  return <div ref={threeRef} style={{ width: "100vw", height: "100vh", overflow: "hidden", background: "linear-gradient(to bottom, #FFF0F5, #FFE4E1)" }} />;
+  const handleStart = () => {
+    // Inicia música no clique (desbloqueia autoplay)
+    startBackgroundMusic();
+    setStartHiding(true);
+    window.setTimeout(() => {
+      setStarted(true);
+    }, 320);
+  };
+
+  return (
+    <div
+      className="relative h-screen w-screen overflow-hidden"
+      style={{ background: "linear-gradient(to bottom, #FFF0F5, #FFE4E1)" }}
+    >
+      {started ? (
+        <div ref={threeRef} className="h-full w-full" />
+      ) : (
+        <div
+          className={
+            "absolute inset-0 flex items-center justify-center transition-all duration-300 " +
+            (startHiding ? "opacity-0 scale-95" : "opacity-100 scale-100")
+          }
+        >
+          <button
+            type="button"
+            onClick={handleStart}
+            className="rounded-full bg-black px-8 py-4 text-base font-semibold text-white transition-colors hover:bg-zinc-800"
+          >
+            Start
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
