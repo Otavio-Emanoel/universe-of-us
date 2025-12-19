@@ -8,10 +8,17 @@ export default function Home() {
   const [startHiding, setStartHiding] = useState(false);
   const [showSpeechBubble, setShowSpeechBubble] = useState(false);
   const [playerName, setPlayerName] = useState("");
+  const [bubbleTargetText, setBubbleTargetText] = useState("Oiiiii como é o seu nome?");
   const [bubbleText, setBubbleText] = useState("Oiiiii como é o seu nome?");
   const [nameLocked, setNameLocked] = useState(false);
   const [musicMuted, setMusicMuted] = useState(false);
+  const [bubbleStage, setBubbleStage] = useState<"name" | "proceed" | "story" | "choices">("name");
+  const [choice, setChoice] = useState<null | "go" | "stay">(null);
+  const [isTypingBubble, setIsTypingBubble] = useState(false);
   const initRef = useRef(false);
+
+  const bubbleStageRef = useRef<"name" | "proceed" | "story" | "choices">("name");
+  const choiceRef = useRef<null | "go" | "stay">(null);
 
   // Refs para sincronizar UI (React) -> animação (Three.js)
   const timeRef = useRef(0);
@@ -29,6 +36,50 @@ export default function Home() {
     baseRotZ: 0,
   });
 
+  const bubbleTypingTimerRef = useRef<number | null>(null);
+  const bubbleTypingDoneRef = useRef<null | (() => void)>(null);
+  const proceedTimerRef = useRef<number | null>(null);
+  const quakeSeqRef = useRef({
+    active: false,
+    restore: false,
+    startedAt: 0,
+    inited: false,
+    smokeAcc: 0,
+    baseGroundX: 0,
+    baseGroundZ: 0,
+    baseHeadRotY: 0,
+  });
+  const panicRef = useRef({
+    active: false,
+    pendingStart: false,
+    inited: false,
+    startedAt: 0,
+    baseX: 0,
+    baseY: 0,
+    baseZ: 0,
+    smokeAcc: 0,
+  });
+
+  const goReturnRef = useRef({
+    active: false,
+    inited: false,
+    startedAt: 0,
+    fromX: 0,
+    fromY: 0,
+    fromZ: 0,
+    toX: 0,
+    toY: 0,
+    toZ: 0,
+    wowPlayed: false,
+    danceUntil: 0,
+    done: false,
+  });
+
+  const setBubbleTyped = (text: string, onDone?: () => void) => {
+    bubbleTypingDoneRef.current = onDone ?? null;
+    setBubbleTargetText(text);
+  };
+
   const normalizeName = (s: string) =>
     s
       .trim()
@@ -43,11 +94,13 @@ export default function Home() {
     setNameLocked(true);
 
     if (norm === "otavio") {
-      setBubbleText("Oxi???? o que voce ta fazendo aqui Otavio? Vai voltar a programar hahahaha");
+      setBubbleStage("name");
+      setBubbleTyped("Oxi???? o que voce ta fazendo aqui Otavio? Vai voltar a programar hahahaha");
       weirdUntilRef.current = timeRef.current + 3.8;
       agataSeqRef.current.active = false;
     } else if (norm === "agata") {
-      setBubbleText("Que bom ter voce aqui Agata, eu estava te esperando!");
+      setBubbleStage("proceed");
+      setBubbleTyped("Que bom ter voce aqui agata, eu estava te esperando!");
       weirdUntilRef.current = 0;
       agataSeqRef.current.active = true;
       agataSeqRef.current.startedAt = timeRef.current;
@@ -57,6 +110,109 @@ export default function Home() {
       agataSeqRef.current.starBurstDone = false;
     }
   };
+
+  const handleProceed = () => {
+    setBubbleStage("story");
+    setChoice(null);
+    agataSeqRef.current.active = false;
+
+    quakeSeqRef.current.active = true;
+    quakeSeqRef.current.restore = false;
+    quakeSeqRef.current.startedAt = timeRef.current;
+    quakeSeqRef.current.inited = false;
+    quakeSeqRef.current.smokeAcc = 0;
+
+    panicRef.current.active = false;
+    panicRef.current.pendingStart = false;
+    panicRef.current.inited = false;
+
+    if (proceedTimerRef.current) {
+      window.clearTimeout(proceedTimerRef.current);
+      proceedTimerRef.current = null;
+    }
+
+    // Depois da sequência de olhar pros lados, ela fala (texto digitando)
+    proceedTimerRef.current = window.setTimeout(() => {
+      setBubbleTyped(
+        "Ops, algo de errado não está certo, alguma coisa está prestes a acontecer, eu vou sair daqui, voce vai vir junto comigo?",
+        () => {
+          setBubbleStage("choices");
+          panicRef.current.pendingStart = true;
+        },
+      );
+    }, 3800);
+  };
+
+  const handleChoice = (c: "go" | "stay") => {
+    setChoice(c);
+    setBubbleStage("story");
+
+    panicRef.current.active = false;
+    panicRef.current.pendingStart = false;
+    panicRef.current.inited = false;
+
+    quakeSeqRef.current.active = false;
+    quakeSeqRef.current.restore = true;
+
+    if (c === "go") {
+      // Ela vai sair lá do fundo e voltar correndo pra frente.
+      // A fala só aparece quando ela chegar.
+      setShowSpeechBubble(false);
+      goReturnRef.current.active = true;
+      goReturnRef.current.inited = false;
+      goReturnRef.current.startedAt = timeRef.current;
+      goReturnRef.current.wowPlayed = false;
+      goReturnRef.current.danceUntil = 0;
+      goReturnRef.current.done = false;
+    } else {
+      setBubbleTyped("Ta bom... cuidado, por favor!");
+    }
+  };
+
+  useEffect(() => {
+    if (!showSpeechBubble) return;
+    if (!bubbleTargetText) return;
+
+    if (bubbleTypingTimerRef.current) {
+      window.clearInterval(bubbleTypingTimerRef.current);
+      bubbleTypingTimerRef.current = null;
+    }
+
+    const words = bubbleTargetText.split(/\s+/).filter(Boolean);
+    let i = 0;
+    setIsTypingBubble(true);
+    setBubbleText("");
+
+    bubbleTypingTimerRef.current = window.setInterval(() => {
+      i += 1;
+      setBubbleText(words.slice(0, i).join(" "));
+      if (i >= words.length) {
+        if (bubbleTypingTimerRef.current) {
+          window.clearInterval(bubbleTypingTimerRef.current);
+          bubbleTypingTimerRef.current = null;
+        }
+        setIsTypingBubble(false);
+        const done = bubbleTypingDoneRef.current;
+        bubbleTypingDoneRef.current = null;
+        if (done) done();
+      }
+    }, 95);
+
+    return () => {
+      if (bubbleTypingTimerRef.current) {
+        window.clearInterval(bubbleTypingTimerRef.current);
+        bubbleTypingTimerRef.current = null;
+      }
+    };
+  }, [bubbleTargetText, showSpeechBubble]);
+
+  useEffect(() => {
+    bubbleStageRef.current = bubbleStage;
+  }, [bubbleStage]);
+
+  useEffect(() => {
+    choiceRef.current = choice;
+  }, [choice]);
 
   // Em mobile, o 100vh + barra do navegador pode permitir um pequeno scroll.
   // Travamos overflow/overscroll no html/body enquanto esta tela estiver ativa.
@@ -335,6 +491,7 @@ export default function Home() {
 
     // Câmera parada, olhando para o centro
     setCameraForViewport(width, height);
+    let baseCameraPos = camera.position.clone();
 
     // --- 2. Iluminação ---
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); 
@@ -431,6 +588,7 @@ export default function Home() {
       g.position.set(x, -1.42, z);
       g.scale.setScalar(s);
       return g;
+      baseCameraPos = camera.position.clone();
     };
 
     // Camada distante
@@ -478,10 +636,14 @@ export default function Home() {
     const sphereGeoMid = new THREE.SphereGeometry(1, 32, 32);
 
     // A. Cabeça
+    const headPivot = new THREE.Group();
+    headPivot.position.y = 1.0;
+    dollGroup.add(headPivot);
+
     const head = new THREE.Mesh(sphereGeoHigh, skinMat);
     head.scale.set(1.2, 1.2, 1.2);
-    head.position.y = 1.0;
-    dollGroup.add(head);
+    head.position.y = 0;
+    headPivot.add(head);
 
     // B. Corpo
     const bodyGeo = new THREE.ConeGeometry(1.1, 1.6, 64);
@@ -494,17 +656,17 @@ export default function Home() {
     const eyeBaseScale = new THREE.Vector3(eyeScale, eyeScale * 1.2, eyeScale * 0.5);
     const eyeLeft = new THREE.Mesh(sphereGeoMid, eyeMat);
     eyeLeft.scale.copy(eyeBaseScale);
-    eyeLeft.position.set(-0.45, 1.1, 1.05);
+    eyeLeft.position.set(-0.45, 0.1, 1.05);
 
     const highlightLeft = new THREE.Mesh(sphereGeoMid, highlightMat);
     highlightLeft.scale.set(0.05, 0.05, 0.05);
-    highlightLeft.position.set(-0.5, 1.2, 1.15);
+    highlightLeft.position.set(-0.5, 0.2, 1.15);
 
     const eyeRight = eyeLeft.clone();
-    eyeRight.position.set(0.45, 1.1, 1.05);
+    eyeRight.position.set(0.45, 0.1, 1.05);
 
     const highlightRight = highlightLeft.clone();
-    highlightRight.position.set(0.4, 1.2, 1.15);
+    highlightRight.position.set(0.4, 0.2, 1.15);
 
 
     // Variáveis para piscar
@@ -516,13 +678,13 @@ export default function Home() {
     // Forçar olhos fechados (usado no suspiro)
     let forceEyesClosed = false;
 
-    dollGroup.add(eyeLeft, highlightLeft, eyeRight, highlightRight);
+    headPivot.add(eyeLeft, highlightLeft, eyeRight, highlightRight);
 
     const mouth = new THREE.Mesh(sphereGeoMid, mouthMat);
     const mouthBaseScale = new THREE.Vector3(0.08, 0.05, 0.05);
     mouth.scale.copy(mouthBaseScale);
-    mouth.position.set(0, 0.85, 1.15);
-    dollGroup.add(mouth);
+    mouth.position.set(0, -0.15, 1.15);
+    headPivot.add(mouth);
 
     // 1. Boca reta (agora usando Capsule para ficar redondinha e fofa)
     const mouthLineGeo: THREE.BufferGeometry = new (THREE as any).CapsuleGeometry(0.04, 0.5, 4, 8); // Raio, Comprimento
@@ -531,9 +693,9 @@ export default function Home() {
     mouthLine.rotation.z = Math.PI / 2;
     const mouthLineBaseScale = new THREE.Vector3(1, 1, 1);
     mouthLine.scale.copy(mouthLineBaseScale);
-    mouthLine.position.set(0, 0.86, 1.16);
+    mouthLine.position.set(0, -0.14, 1.16);
     mouthLine.visible = false;
-    dollGroup.add(mouthLine);
+    headPivot.add(mouthLine);
 
     // 2. Sobrancelhas (ajuste de escala e posição inicial)
     const browGeo = new THREE.TorusGeometry(0.22, 0.045, 10, 22, Math.PI);
@@ -548,36 +710,36 @@ export default function Home() {
     browLeft.scale.setScalar(0.001);
     browRight.scale.setScalar(0.001);
 
-    browLeft.position.set(-0.52, 1.34, 1.16);
-    browRight.position.set(0.52, 1.34, 1.16);
+    browLeft.position.set(-0.52, 0.34, 1.16);
+    browRight.position.set(0.52, 0.34, 1.16);
 
     browLeft.visible = false;
     browRight.visible = false;
-    dollGroup.add(browLeft, browRight);
+    headPivot.add(browLeft, browRight);
 
     const blushScale = 0.25;
     const blushLeft = new THREE.Mesh(sphereGeoMid, blushMat);
     blushLeft.scale.set(blushScale, blushScale * 0.6, blushScale * 0.2);
-    blushLeft.position.set(-0.7, 0.9, 0.95);
+    blushLeft.position.set(-0.7, -0.1, 0.95);
     const blushRight = blushLeft.clone();
-    blushRight.position.set(0.7, 0.9, 0.95);
-    dollGroup.add(blushLeft, blushRight);
+    blushRight.position.set(0.7, -0.1, 0.95);
+    headPivot.add(blushLeft, blushRight);
 
     // D. Cabelo
     const hairBack = new THREE.Mesh(sphereGeoHigh, hairMat);
     hairBack.scale.set(1.4, 1.4, 1.3);
-    hairBack.position.set(0, 1.1, -0.3);
-    dollGroup.add(hairBack);
+    hairBack.position.set(0, 0.1, -0.3);
+    headPivot.add(hairBack);
 
     const hairSideGeo = new THREE.SphereGeometry(0.6, 32, 32);
     const hairLeft = new THREE.Mesh(hairSideGeo, hairMat);
     hairLeft.scale.set(1, 2.5, 1);
-    hairLeft.position.set(-1.3, 0.2, 0);
+    hairLeft.position.set(-1.3, -0.8, 0);
     hairLeft.rotation.z = 0.2;
     const hairRight = hairLeft.clone();
-    hairRight.position.set(1.3, 0.2, 0);
+    hairRight.position.set(1.3, -0.8, 0);
     hairRight.rotation.z = -0.2;
-    dollGroup.add(hairLeft, hairRight);
+    headPivot.add(hairLeft, hairRight);
 
     // E. Mãos (Variáveis externas para animar)
     const handScale = 0.25;
@@ -629,9 +791,9 @@ export default function Home() {
     const sweat = new THREE.Mesh(sweatGeo, sweatMat);
     sweat.scale.set(0.8, 1.25, 0.6);
     // Lado esquerdo da testa
-    sweat.position.set(-0.35, 1.55, 1.12);
+    sweat.position.set(-0.35, 0.55, 1.12);
     sweat.visible = false;
-    dollGroup.add(sweat);
+    headPivot.add(sweat);
 
     // --- Nuvemzinha do suspiro (anime puff) ---
     const puffGeo = new THREE.SphereGeometry(0.14, 24, 24);
@@ -657,8 +819,8 @@ export default function Home() {
     puffGroup.add(puff1, puff2, puff3, puff4);
     puffGroup.visible = false;
     // Posição base: perto da boca
-    puffGroup.position.set(-0.05, 0.88, 1.22);
-    dollGroup.add(puffGroup);
+    puffGroup.position.set(-0.05, -0.12, 1.22);
+    headPivot.add(puffGroup);
 
     // --- Poeira/Fumacinha da corrida (partículas simples) ---
     const particleGroup = new THREE.Group();
@@ -1089,7 +1251,8 @@ export default function Home() {
           phaseT += dt;
           const a = smooth01(phaseT / 0.6);
           sweatMat.opacity = 0.9 * a;
-          sweat.position.y = 1.55 - a * 0.08;
+          // `sweat` agora está dentro do headPivot (Y local), então ajustamos a altura
+          sweat.position.y = 0.55 - a * 0.08;
           if (a >= 1) {
             phase = "wipe";
             phaseT = 0;
@@ -1100,13 +1263,15 @@ export default function Home() {
           const up = p < 0.5 ? smooth01(p / 0.5) : smooth01((1 - p) / 0.5);
 
           // Mão esquerda sobe até a testa e volta
-           // Alvo baseado na posição real da gota (pra mão "chegar" nela)
-           const targetX = sweat.position.x - 0.02;
-           const targetY = sweat.position.y - 0.05;
-           const targetZ = sweat.position.z + 0.12;
-           const wipeX = THREE.MathUtils.lerp(handIdleXLeft, targetX, up);
-           const wipeY = THREE.MathUtils.lerp(handIdleY, targetY, up);
-           const wipeZ = THREE.MathUtils.lerp(handIdleZ, targetZ, up);
+          // `sweat` está no headPivot, então pegamos a posição no mundo e convertemos pro espaço do doll
+          const sweatWorld = sweat.getWorldPosition(tmpWorld.clone());
+          const sweatLocal = dollGroup.worldToLocal(sweatWorld);
+          const targetX = sweatLocal.x - 0.02;
+          const targetY = sweatLocal.y - 0.05;
+          const targetZ = sweatLocal.z + 0.12;
+          const wipeX = THREE.MathUtils.lerp(handIdleXLeft, targetX, up);
+          const wipeY = THREE.MathUtils.lerp(handIdleY, targetY, up);
+          const wipeZ = THREE.MathUtils.lerp(handIdleZ, targetZ, up);
           handLeft.position.set(wipeX, wipeY, wipeZ);
 
           // Suor some enquanto limpa
@@ -1135,7 +1300,8 @@ export default function Home() {
 
             // Drift fofinho (sobe e vai um pouco pro lado)
             puffGroup.position.x = THREE.MathUtils.lerp(-0.05, -0.45, smooth01(Math.min(t / 1.1, 1)));
-            puffGroup.position.y = THREE.MathUtils.lerp(0.88, 1.18, smooth01(Math.min(t / 1.1, 1)));
+            // `puffGroup` agora está dentro do headPivot (Y local)
+            puffGroup.position.y = THREE.MathUtils.lerp(-0.12, 0.18, smooth01(Math.min(t / 1.1, 1)));
             puffGroup.position.z = THREE.MathUtils.lerp(1.22, 1.35, smooth01(Math.min(t / 1.1, 1)));
 
             const s = THREE.MathUtils.lerp(0.65, 1.25, smooth01(Math.min(t / 1.1, 1)));
@@ -1280,6 +1446,290 @@ export default function Home() {
         }
       }
 
+      // --- Terremoto (após Prosseguir) ---
+      const q = quakeSeqRef.current;
+      if (q.active || q.restore) {
+        if (!q.inited) {
+          q.inited = true;
+          q.baseGroundX = ground.position.x;
+          q.baseGroundZ = ground.position.z;
+          q.baseHeadRotY = headPivot.rotation.y;
+        }
+
+        const e = time - q.startedAt;
+        const quake1 = e >= 0 && e < 1.2;
+        const lookLeft = e >= 1.2 && e < 1.8;
+        const lookRight = e >= 1.8 && e < 2.6;
+        const quake2 = e >= 2.6;
+
+        const shaking = q.active && (quake1 || quake2);
+        const intensity = quake1 ? 1 : quake2 ? 0.75 : 0;
+
+        if (shaking) {
+          const sx = Math.sin(time * 40) * 0.18 * intensity + (Math.random() - 0.5) * 0.04;
+          const sz = Math.cos(time * 36) * 0.18 * intensity + (Math.random() - 0.5) * 0.04;
+          ground.position.x = q.baseGroundX + sx;
+          ground.position.z = q.baseGroundZ + sz;
+
+          // Shake de câmera (bem sutil, mas perceptível)
+          camera.position.x = baseCameraPos.x + sx * 0.08;
+          camera.position.y = baseCameraPos.y + Math.abs(Math.sin(time * 34)) * 0.04 * intensity;
+          camera.position.z = baseCameraPos.z + sz * 0.06;
+          camera.lookAt(0, 0.6, 0);
+
+          q.smokeAcc += dt;
+          if (q.smokeAcc >= 0.08) {
+            q.smokeAcc = 0;
+            const pos = shoeLeft.getWorldPosition(tmpWorld.clone());
+            pos.y += 0.05;
+            pos.x += (Math.random() - 0.5) * 0.35;
+            pos.z += (Math.random() - 0.5) * 0.35;
+            spawnFromPool(
+              smokePool,
+              pos,
+              new THREE.Vector3(
+                (Math.random() - 0.5) * 0.1,
+                0.35 + Math.random() * 0.25,
+                (Math.random() - 0.5) * 0.1,
+              ),
+            );
+
+            // Se ela estiver correndo desesperada, fumaça também dos pés
+            if (panicRef.current.active) {
+              const left = shoeLeft.getWorldPosition(tmpWorld.clone());
+              const right = shoeRight.getWorldPosition(tmpWorld.clone());
+              left.y += 0.02;
+              right.y += 0.02;
+              spawnFromPool(
+                smokePool,
+                left,
+                new THREE.Vector3(
+                  (Math.random() - 0.5) * 0.06,
+                  0.28 + Math.random() * 0.2,
+                  (Math.random() - 0.5) * 0.06,
+                ),
+              );
+              spawnFromPool(
+                smokePool,
+                right,
+                new THREE.Vector3(
+                  (Math.random() - 0.5) * 0.06,
+                  0.28 + Math.random() * 0.2,
+                  (Math.random() - 0.5) * 0.06,
+                ),
+              );
+            }
+          }
+        } else {
+          ground.position.x = THREE.MathUtils.lerp(ground.position.x, q.baseGroundX, 0.12);
+          ground.position.z = THREE.MathUtils.lerp(ground.position.z, q.baseGroundZ, 0.12);
+          camera.position.lerp(baseCameraPos, 0.12);
+          camera.lookAt(0, 0.6, 0);
+        }
+
+        // Cabeça olhando esquerda/direita
+        if (q.active && lookLeft) {
+          headPivot.rotation.y = THREE.MathUtils.lerp(headPivot.rotation.y, -0.75, 0.18);
+        } else if (q.active && lookRight) {
+          headPivot.rotation.y = THREE.MathUtils.lerp(headPivot.rotation.y, 0.75, 0.18);
+        } else {
+          headPivot.rotation.y = THREE.MathUtils.lerp(headPivot.rotation.y, q.baseHeadRotY, 0.12);
+        }
+
+        if (q.restore) {
+          const gxOk = Math.abs(ground.position.x - q.baseGroundX) < 0.002;
+          const gzOk = Math.abs(ground.position.z - q.baseGroundZ) < 0.002;
+          const hOk = Math.abs(headPivot.rotation.y - q.baseHeadRotY) < 0.01;
+          if (gxOk && gzOk && hOk) {
+            q.restore = false;
+            q.inited = false;
+          }
+        }
+      }
+
+      // --- Pânico (correndo para várias direções após o texto) ---
+      if (panicRef.current.pendingStart) {
+        panicRef.current.pendingStart = false;
+        panicRef.current.active = true;
+        panicRef.current.inited = false;
+        panicRef.current.startedAt = time;
+      }
+
+      const p = panicRef.current;
+      if (p.active) {
+        if (!p.inited) {
+          p.inited = true;
+          p.baseX = dollGroup.position.x;
+          p.baseY = dollGroup.position.y;
+          p.baseZ = dollGroup.position.z;
+          p.smokeAcc = 0;
+        }
+
+        const d = time - p.startedAt;
+        const stage = bubbleStageRef.current;
+
+        if (stage === "choices") {
+          // Se afasta e corre em círculos perto da floresta
+          // Mais centralizado para não sumir no celular
+          const centerX = 1.2;
+          const centerZ = -9.2;
+          const r = 1.9;
+          const approach = smooth01(Math.min(d / 1.0, 1));
+          const ang = d * 2.2;
+          const tx = centerX + Math.cos(ang) * r;
+          const tz = centerZ + Math.sin(ang) * r;
+          const px = THREE.MathUtils.lerp(p.baseX, tx, approach);
+          const pz = THREE.MathUtils.lerp(p.baseZ, tz, approach);
+          dollGroup.position.x = px;
+          dollGroup.position.z = pz;
+          dollGroup.position.y = p.baseY + Math.abs(Math.sin(d * 14)) * 0.12;
+          const dirX = -Math.sin(ang);
+          const dirZ = Math.cos(ang);
+          dollGroup.rotation.y = THREE.MathUtils.lerp(dollGroup.rotation.y, Math.atan2(dirX, -dirZ), 0.22);
+          dollGroup.rotation.z = Math.sin(d * 12) * 0.08;
+        } else {
+          // Caótico no lugar (antes da pergunta terminar)
+          const dx = Math.sin(d * 3.8) + 0.6 * Math.sin(d * 7.1 + 1.2);
+          const dz = Math.cos(d * 4.1) + 0.6 * Math.sin(d * 6.3 + 0.4);
+
+          dollGroup.position.x = p.baseX + dx * 0.85;
+          dollGroup.position.z = p.baseZ + dz * 0.5;
+          dollGroup.position.y = p.baseY + Math.abs(Math.sin(d * 14)) * 0.12;
+          dollGroup.rotation.y = THREE.MathUtils.lerp(dollGroup.rotation.y, Math.atan2(dx, -dz), 0.22);
+          dollGroup.rotation.z = Math.sin(d * 12) * 0.08;
+        }
+
+        const runAnim = animSpeed * 2.2;
+        shoeLeft.position.z = Math.sin(time * runAnim) * 0.55;
+        shoeRight.position.z = Math.sin(time * runAnim + Math.PI) * 0.55;
+        shoeLeft.position.y = shoeBaseY + Math.max(0, Math.sin(time * runAnim)) * (shoeStepLift * 1.35);
+        shoeRight.position.y = shoeBaseY + Math.max(0, Math.sin(time * runAnim + Math.PI)) * (shoeStepLift * 1.35);
+
+        handLeft.position.z = Math.sin(time * runAnim + Math.PI) * 0.35 + 0.25;
+        handRight.position.z = Math.sin(time * runAnim) * 0.35 + 0.25;
+        handLeft.position.x = THREE.MathUtils.lerp(handLeft.position.x, handWalkXLeft, 0.25);
+        handRight.position.x = THREE.MathUtils.lerp(handRight.position.x, handWalkXRight, 0.25);
+        handLeft.position.y = THREE.MathUtils.lerp(handLeft.position.y, handIdleY, 0.25);
+        handRight.position.y = THREE.MathUtils.lerp(handRight.position.y, handIdleY, 0.25);
+
+        // Fumaçinhas saindo do pé porque ela está correndo
+        p.smokeAcc += dt;
+        if (p.smokeAcc >= 0.075) {
+          p.smokeAcc = 0;
+          const left = shoeLeft.getWorldPosition(tmpWorld.clone());
+          const right = shoeRight.getWorldPosition(tmpWorld.clone());
+          left.y += 0.02;
+          right.y += 0.02;
+
+          spawnFromPool(
+            smokePool,
+            left,
+            new THREE.Vector3(
+              (Math.random() - 0.5) * 0.06,
+              0.22 + Math.random() * 0.18,
+              (Math.random() - 0.5) * 0.06,
+            ),
+          );
+          spawnFromPool(
+            smokePool,
+            right,
+            new THREE.Vector3(
+              (Math.random() - 0.5) * 0.06,
+              0.22 + Math.random() * 0.18,
+              (Math.random() - 0.5) * 0.06,
+            ),
+          );
+        }
+      }
+
+      // --- Retorno ao escolher "Ir" (volta correndo pra frente, fala só ao chegar) ---
+      const gr = goReturnRef.current;
+      if (gr.active) {
+        if (!gr.inited) {
+          gr.inited = true;
+          gr.startedAt = time;
+          gr.fromX = dollGroup.position.x;
+          gr.fromY = dollGroup.position.y;
+          gr.fromZ = dollGroup.position.z;
+          gr.toX = 0;
+          gr.toY = -0.5;
+          gr.toZ = 0.8;
+        }
+
+        const dur = 2.2;
+        const t = smooth01(Math.min((time - gr.startedAt) / dur, 1));
+
+        dollGroup.position.x = THREE.MathUtils.lerp(gr.fromX, gr.toX, t);
+        dollGroup.position.y = THREE.MathUtils.lerp(gr.fromY, gr.toY, t) + Math.abs(Math.sin(time * animSpeed * 2.1)) * 0.16;
+        dollGroup.position.z = THREE.MathUtils.lerp(gr.fromZ, gr.toZ, t);
+
+        // Sempre olhando "pra frente" (em direção da câmera)
+        dollGroup.rotation.y = THREE.MathUtils.lerp(dollGroup.rotation.y, 0, 0.25);
+        dollGroup.rotation.z = Math.sin(time * animSpeed) * 0.06;
+
+        // Animação de corrida
+        const runAnim = animSpeed * 2.15;
+        shoeLeft.position.z = Math.sin(time * runAnim) * 0.55;
+        shoeRight.position.z = Math.sin(time * runAnim + Math.PI) * 0.55;
+        shoeLeft.position.y = shoeBaseY + Math.max(0, Math.sin(time * runAnim)) * (shoeStepLift * 1.35);
+        shoeRight.position.y = shoeBaseY + Math.max(0, Math.sin(time * runAnim + Math.PI)) * (shoeStepLift * 1.35);
+
+        handLeft.position.z = Math.sin(time * runAnim + Math.PI) * 0.35 + 0.25;
+        handRight.position.z = Math.sin(time * runAnim) * 0.35 + 0.25;
+        handLeft.position.x = THREE.MathUtils.lerp(handLeft.position.x, handWalkXLeft, 0.25);
+        handRight.position.x = THREE.MathUtils.lerp(handRight.position.x, handWalkXRight, 0.25);
+        handLeft.position.y = THREE.MathUtils.lerp(handLeft.position.y, handIdleY, 0.25);
+        handRight.position.y = THREE.MathUtils.lerp(handRight.position.y, handIdleY, 0.25);
+
+        // Fumaça dos pés durante o retorno
+        gr.danceUntil = gr.danceUntil; // noop (mantém tipo)
+        if (Math.sin(time * runAnim) > 0.6) {
+          const left = shoeLeft.getWorldPosition(tmpWorld.clone());
+          const right = shoeRight.getWorldPosition(tmpWorld.clone());
+          left.y += 0.02;
+          right.y += 0.02;
+          spawnFromPool(smokePool, left, new THREE.Vector3((Math.random() - 0.5) * 0.06, 0.24 + Math.random() * 0.16, (Math.random() - 0.5) * 0.06));
+          spawnFromPool(smokePool, right, new THREE.Vector3((Math.random() - 0.5) * 0.06, 0.24 + Math.random() * 0.16, (Math.random() - 0.5) * 0.06));
+        }
+
+        if (t >= 1 && !gr.done) {
+          gr.done = true;
+          gr.danceUntil = time + 2.0;
+          // Agora sim aparece a fala
+          setShowSpeechBubble(true);
+          setBubbleStage("story");
+          setBubbleTyped("Woooow!", () => {});
+        }
+
+        // Dança por 2 segundos e toca wow uma vez ao começar
+        if (gr.done && time <= gr.danceUntil) {
+          if (!gr.wowPlayed) {
+            gr.wowPlayed = true;
+            sayWow();
+          }
+          const d = time - (gr.danceUntil - 2.0);
+          dollGroup.position.y = -0.5 + Math.sin(d * 10) * 0.06;
+          dollGroup.rotation.z = Math.sin(d * 6) * 0.18;
+          dollGroup.rotation.y = Math.sin(d * 3.2) * 0.08;
+
+          const arm = 0.5 + 0.5 * Math.sin(d * 8);
+          handLeft.position.set(
+            handIdleXLeft - 0.12,
+            THREE.MathUtils.lerp(handIdleY, 0.55, arm),
+            THREE.MathUtils.lerp(handIdleZ, 0.95, arm),
+          );
+          handRight.position.set(
+            handIdleXRight + 0.12,
+            THREE.MathUtils.lerp(handIdleY, 0.62, 1 - arm),
+            THREE.MathUtils.lerp(handIdleZ, 0.95, 1 - arm),
+          );
+        }
+
+        if (gr.done && time > gr.danceUntil) {
+          gr.active = false;
+        }
+      }
+
       renderer.render(scene, camera);
     }
     // Inicializar blinkTimer para o primeiro piscar
@@ -1311,10 +1761,13 @@ export default function Home() {
       renderer.dispose();
       scene.traverse((object) => {
         if (object instanceof THREE.Mesh) {
-            object.geometry.dispose();
-            if (object.material.isMaterial) {
-                object.material.dispose();
-            }
+          object.geometry.dispose();
+          const material = object.material as THREE.Material | THREE.Material[];
+          if (Array.isArray(material)) {
+            material.forEach((m) => m.dispose());
+          } else {
+            material.dispose();
+          }
         }
       });
       if (threeRef.current && renderer.domElement.parentNode === threeRef.current) {
@@ -1326,6 +1779,14 @@ export default function Home() {
   useEffect(() => {
     return () => {
       // cleanup
+      if (proceedTimerRef.current) {
+        window.clearTimeout(proceedTimerRef.current);
+        proceedTimerRef.current = null;
+      }
+      if (bubbleTypingTimerRef.current) {
+        window.clearInterval(bubbleTypingTimerRef.current);
+        bubbleTypingTimerRef.current = null;
+      }
       if (musicTimerRef.current) {
         window.clearInterval(musicTimerRef.current);
         musicTimerRef.current = null;
@@ -1384,12 +1845,32 @@ export default function Home() {
 
     // Reseta UI/flags caso reinicie
     setShowSpeechBubble(false);
+    setBubbleStage("name");
+    setChoice(null);
+    setBubbleTargetText("Oiiiii como é o seu nome?");
     setBubbleText("Oiiiii como é o seu nome?");
     setNameLocked(false);
     setPlayerName("");
     bubbleShownRef.current = false;
     helloPlayedRef.current = false;
     weirdUntilRef.current = 0;
+
+    agataSeqRef.current.active = false;
+    agataSeqRef.current.inited = false;
+    agataSeqRef.current.wowPlayed = false;
+    agataSeqRef.current.musicSwitched = false;
+    agataSeqRef.current.starBurstDone = false;
+
+    if (proceedTimerRef.current) {
+      window.clearTimeout(proceedTimerRef.current);
+      proceedTimerRef.current = null;
+    }
+    quakeSeqRef.current.active = false;
+    quakeSeqRef.current.restore = false;
+    quakeSeqRef.current.inited = false;
+    panicRef.current.active = false;
+    panicRef.current.pendingStart = false;
+    panicRef.current.inited = false;
 
     setStartHiding(true);
     window.setTimeout(() => {
@@ -1447,40 +1928,76 @@ export default function Home() {
         <div className="pointer-events-auto absolute left-1/2 top-8 z-20 w-[min(92vw,420px)] -translate-x-1/2">
           <div className="relative rounded-2xl border border-zinc-200 bg-white/90 px-5 py-4 text-zinc-900 shadow-sm">
             <div className="text-base font-semibold">{bubbleText}</div>
-            <div className="relative mt-3">
-              <input
-                value={playerName}
-                onChange={(e) => setPlayerName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSubmitName();
-                }}
-                placeholder="Seu nome"
-                disabled={nameLocked}
-                className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 pr-12 text-base outline-none focus:border-zinc-400 disabled:opacity-70"
-              />
-              <button
-                type="button"
-                onClick={handleSubmitName}
-                disabled={nameLocked || !playerName.trim()}
-                aria-label="Enviar nome"
-                title="Enviar"
-                className="absolute right-2 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg bg-black/80 text-white transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="h-4 w-4"
+            {bubbleStage === "name" ? (
+              <div className="relative mt-3">
+                <input
+                  value={playerName}
+                  onChange={(e) => setPlayerName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSubmitName();
+                  }}
+                  placeholder="Seu nome"
+                  disabled={nameLocked}
+                  className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 pr-12 text-base outline-none focus:border-zinc-400 disabled:opacity-70"
+                />
+                <button
+                  type="button"
+                  onClick={handleSubmitName}
+                  disabled={nameLocked || !playerName.trim()}
+                  aria-label="Enviar nome"
+                  title="Enviar"
+                  className="absolute right-2 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg bg-black/80 text-white transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  <path d="M22 2 11 13" />
-                  <path d="M22 2 15 22l-4-9-9-4 20-7z" />
-                </svg>
-              </button>
-            </div>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="h-4 w-4"
+                  >
+                    <path d="M22 2 11 13" />
+                    <path d="M22 2 15 22l-4-9-9-4 20-7z" />
+                  </svg>
+                </button>
+              </div>
+            ) : null}
+
+            {bubbleStage === "proceed" ? (
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={handleProceed}
+                  disabled={isTypingBubble}
+                  className="w-full rounded-xl bg-black px-4 py-3 text-base font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Prosseguir
+                </button>
+              </div>
+            ) : null}
+
+            {bubbleStage === "choices" ? (
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleChoice("go")}
+                  disabled={isTypingBubble || choice !== null}
+                  className="rounded-xl bg-black px-4 py-3 text-base font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Ir
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleChoice("stay")}
+                  disabled={isTypingBubble || choice !== null}
+                  className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-base font-semibold text-zinc-900 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Ficar
+                </button>
+              </div>
+            ) : null}
             <div className="absolute left-10 top-full h-4 w-4 -translate-y-2 rotate-45 border-b border-r border-zinc-200 bg-white/90" />
           </div>
         </div>
