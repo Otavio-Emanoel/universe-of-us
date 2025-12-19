@@ -1,8 +1,10 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import * as THREE from "three";
 
 export default function Home() {
+  const router = useRouter();
   const threeRef = useRef<HTMLDivElement>(null);
   const [started, setStarted] = useState(false);
   const [startHiding, setStartHiding] = useState(false);
@@ -13,7 +15,7 @@ export default function Home() {
   const [nameLocked, setNameLocked] = useState(false);
   const [musicMuted, setMusicMuted] = useState(false);
   const [bubbleStage, setBubbleStage] = useState<
-    "name" | "proceed" | "story" | "choices" | "enterRocket" | "otavioSorry" | "otavioRestart"
+    "name" | "proceed" | "story" | "choices" | "enterRocket" | "lookStars" | "otavioSorry" | "otavioRestart"
   >("name");
   const [choice, setChoice] = useState<null | "go" | "stay">(null);
   const [isTypingBubble, setIsTypingBubble] = useState(false);
@@ -23,7 +25,7 @@ export default function Home() {
   const bubbleFollowDollRef = useRef(false);
 
   const bubbleStageRef = useRef<
-    "name" | "proceed" | "story" | "choices" | "enterRocket" | "otavioSorry" | "otavioRestart"
+    "name" | "proceed" | "story" | "choices" | "enterRocket" | "lookStars" | "otavioSorry" | "otavioRestart"
   >("name");
   const choiceRef = useRef<null | "go" | "stay">(null);
 
@@ -126,6 +128,9 @@ export default function Home() {
     stage: 0 as 0 | 1 | 2, // 0=antes, 1=primeiro clique (aguarda 2o), 2=disparado
     readySecond: false,
     launchedAt: 0,
+    spacePromptShown: false,
+    lookStarsActive: false,
+    lookStarsStartedAt: 0,
     shakeUntil: 0,
     shakeStart: 0,
     shakeDur: 0,
@@ -249,6 +254,18 @@ export default function Home() {
 
   const handleRestart = () => {
     window.location.reload();
+  };
+
+  const handleLookStars = () => {
+    const ls = launchSeqRef.current;
+    if (ls.lookStarsActive) return;
+    if (worldModeRef.current !== "inside") return;
+
+    setShowSpeechBubble(false);
+    setBubbleFollowDoll(false);
+    ls.lookStarsActive = true;
+    ls.lookStarsStartedAt = timeRef.current;
+    sayAlert();
   };
 
   const handleEnterRocket = () => {
@@ -1123,6 +1140,11 @@ export default function Home() {
     winScreen.position.set(0, 0.95, -2.98);
     rocketInterior.add(winScreen);
 
+    const winGlowMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 });
+    const winGlow = new THREE.Mesh(new THREE.PlaneGeometry(3.05, 1.55), winGlowMat);
+    winGlow.position.set(0, 0.95, -2.96);
+    rocketInterior.add(winGlow);
+
     const clamp01Local = (v: number) => Math.max(0, Math.min(1, v));
     const ease01Local = (v: number) => {
       const x = clamp01Local(v);
@@ -1696,6 +1718,14 @@ export default function Home() {
     const tmpCamDir = new THREE.Vector3();
     const tmpLook = new THREE.Vector3();
     const tmpDoor = new THREE.Vector3();
+    const tmpWin = new THREE.Vector3();
+
+    let lookStarsInited = false;
+    const lookFrom = new THREE.Vector3();
+    const lookTo = new THREE.Vector3();
+    const camFrom = new THREE.Vector3();
+    const camTo = new THREE.Vector3();
+    let lookStarsNavigated = false;
     const spawnFromPool = (pool: Particle[], pos: THREE.Vector3, vel: THREE.Vector3) => {
       const p = pool.find((x) => x.life <= 0);
       if (!p) return;
@@ -2655,6 +2685,57 @@ export default function Home() {
           drawWindow(targetProgress, time);
         }
 
+        // Quando chega no espaço: ela propõe olhar as estrelas
+        if (targetProgress >= 0.999 && !ls.spacePromptShown && !ls.lookStarsActive) {
+          ls.spacePromptShown = true;
+          setShowSpeechBubble(true);
+          setBubbleFollowDoll(false);
+          setBubbleStage("story");
+          setBubbleTyped("Vamos olhar as estrelas?", () => {
+            setBubbleStage("lookStars");
+          });
+        }
+
+        // Sequência: câmera vai pra janela, brilho, alert, e navega
+        if (ls.lookStarsActive) {
+          if (!lookStarsInited) {
+            lookStarsInited = true;
+            camFrom.copy(camera.position);
+            lookFrom.set(0, 0.28, -0.35);
+            winGlowMat.opacity = 0;
+
+            winScreen.getWorldPosition(lookTo);
+            camTo.copy(lookTo).add(new THREE.Vector3(0, 0.25, 3.1));
+          }
+
+          const dur = 1.15;
+          const u = smooth01(Math.min((time - ls.lookStarsStartedAt) / dur, 1));
+          camera.position.lerpVectors(camFrom, camTo, u);
+          tmpWin.lerpVectors(lookFrom, lookTo, u);
+          camera.lookAt(tmpWin);
+
+          // brilho no caminho
+          winGlowMat.opacity = Math.sin(u * Math.PI) * 0.75;
+
+          // desliga tremor enquanto faz essa transição
+          rocketInterior.position.copy(baseRocketInteriorPos);
+
+          if (u >= 1) {
+            winGlowMat.opacity = 0;
+            ls.lookStarsActive = false;
+            ls.lookStarsStartedAt = 0;
+            lookStarsInited = false;
+            if (!lookStarsNavigated) {
+              lookStarsNavigated = true;
+              router.push("/stars");
+            }
+          }
+          // Não aplica tremor/restauração de câmera nessa frame
+        } else {
+          lookStarsInited = false;
+          winGlowMat.opacity = 0;
+        }
+
         if (time < ls.dropsUntil) {
           ls.dropsAcc += dt;
           const rate = 0.03;
@@ -2671,7 +2752,7 @@ export default function Home() {
           }
         }
 
-        if (time < ls.shakeUntil) {
+        if (!ls.lookStarsActive && time < ls.shakeUntil) {
           const u = THREE.MathUtils.clamp((time - ls.shakeStart) / Math.max(ls.shakeDur, 0.0001), 0, 1);
           const falloff = 1 - u;
           const amp = 0.12 * falloff;
@@ -2689,7 +2770,7 @@ export default function Home() {
             baseRocketInteriorPos.y + (Math.random() - 0.5) * iAmp,
             baseRocketInteriorPos.z,
           );
-        } else {
+        } else if (!ls.lookStarsActive) {
           camera.position.copy(baseCameraPos);
           rocketInterior.position.copy(baseRocketInteriorPos);
         }
@@ -2955,6 +3036,9 @@ export default function Home() {
           launchSeqRef.current.stage = 0;
           launchSeqRef.current.readySecond = false;
           launchSeqRef.current.launchedAt = 0;
+          launchSeqRef.current.spacePromptShown = false;
+          launchSeqRef.current.lookStarsActive = false;
+          launchSeqRef.current.lookStarsStartedAt = 0;
           launchSeqRef.current.shakeUntil = 0;
           launchSeqRef.current.shakeStart = 0;
           launchSeqRef.current.shakeDur = 0;
@@ -3149,6 +3233,9 @@ export default function Home() {
     launchSeqRef.current.stage = 0;
     launchSeqRef.current.readySecond = false;
     launchSeqRef.current.launchedAt = 0;
+    launchSeqRef.current.spacePromptShown = false;
+    launchSeqRef.current.lookStarsActive = false;
+    launchSeqRef.current.lookStarsStartedAt = 0;
     launchSeqRef.current.shakeUntil = 0;
     launchSeqRef.current.shakeStart = 0;
     launchSeqRef.current.shakeDur = 0;
@@ -3326,6 +3413,19 @@ export default function Home() {
                   className="w-full rounded-xl bg-black px-4 py-3 text-base font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Entrar no foguete
+                </button>
+              </div>
+            ) : null}
+
+            {bubbleStage === "lookStars" ? (
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={handleLookStars}
+                  disabled={isTypingBubble}
+                  className="w-full rounded-xl bg-black px-4 py-3 text-base font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Olhar estrelas
                 </button>
               </div>
             ) : null}
