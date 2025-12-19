@@ -126,6 +126,14 @@ export default function Home() {
     handRight.position.set(0.9, -0.3, 0.3); // Posição base
     dollGroup.add(handLeft, handRight);
 
+    // Posições alvo/idle para facilitar animações
+    const handIdleY = -0.3;
+    const handIdleZ = 0.55;
+    const handIdleXLeft = -1.15;
+    const handIdleXRight = 1.15;
+    const handWalkXLeft = -0.9;
+    const handWalkXRight = 0.9;
+
     // F. Sapatos (Variáveis externas para animar)
     const shoeScale = 0.35;
     const shoeLeft = new THREE.Mesh(sphereGeoMid, shoesMat);
@@ -141,6 +149,22 @@ export default function Home() {
     dollGroup.position.z = -15; 
     scene.add(dollGroup);
 
+    // --- Gota de suor (aparece após a caminhada) ---
+    const sweatGeo = new THREE.SphereGeometry(0.12, 32, 32);
+    const sweatMat = new THREE.MeshStandardMaterial({
+      color: 0x6ecbff,
+      roughness: 0.35,
+      metalness: 0.0,
+      transparent: true,
+      opacity: 0,
+    });
+    const sweat = new THREE.Mesh(sweatGeo, sweatMat);
+    sweat.scale.set(0.8, 1.25, 0.6);
+    // Lado esquerdo da testa
+    sweat.position.set(-0.35, 1.55, 1.12);
+    sweat.visible = false;
+    dollGroup.add(sweat);
+
     // --- Animação ---
     let frameId: number;
     let time = 0;
@@ -150,9 +174,20 @@ export default function Home() {
     const walkSpeed = 0.06; // Velocidade de movimento
     const animSpeed = 8; // Velocidade do movimento das pernas
 
+    type Phase = "walk" | "sweat" | "wipe" | "postWipeWait" | "wave" | "idle";
+    let phase: Phase = "walk";
+    let phaseT = 0;
+
+    const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+    const smooth01 = (v: number) => {
+      const t = clamp01(v);
+      return t * t * (3 - 2 * t);
+    };
+
     function animate() {
       frameId = requestAnimationFrame(animate);
-      time += 0.015;
+      const dt = 0.015;
+      time += dt;
 
 
       // --- ANIMAÇÃO DE PISCAR ---
@@ -183,7 +218,7 @@ export default function Home() {
       }
 
       // Estado 1: Andando
-      if (dollGroup.position.z < stopZ) {
+      if (phase === "walk" && dollGroup.position.z < stopZ) {
         // Mover para frente
         dollGroup.position.z += walkSpeed;
 
@@ -205,20 +240,32 @@ export default function Home() {
         handLeft.position.z = Math.sin(time * animSpeed + Math.PI) * 0.3 + 0.2;
         handRight.position.z = Math.sin(time * animSpeed) * 0.3 + 0.2;
 
-        // Cabelo balançando (reativo)
-        hairLeft.rotation.z = 0.2 + Math.sin(time * animSpeed) * 0.1;
-        hairRight.rotation.z = -0.2 + Math.sin(time * animSpeed) * 0.1;
+        // Garantir mãos na lateral correta enquanto anda
+        handLeft.position.x = THREE.MathUtils.lerp(handLeft.position.x, handWalkXLeft, 0.2);
+        handRight.position.x = THREE.MathUtils.lerp(handRight.position.x, handWalkXRight, 0.2);
+        handLeft.position.y = THREE.MathUtils.lerp(handLeft.position.y, handIdleY, 0.2);
+        handRight.position.y = THREE.MathUtils.lerp(handRight.position.y, handIdleY, 0.2);
+      } else {
+        // Transição: acabou de chegar
+        if (phase === "walk") {
+          phase = "sweat";
+          phaseT = 0;
+          dollGroup.position.z = stopZ;
+          sweat.visible = true;
+          sweatMat.opacity = 0;
+        }
 
-      } 
-      // Estado 2: Chegou e Parou (Idle)
-      else {
         // Reset suave para posição de "respiro"
         const idleTime = time * 2;
-        
-        // Pulo suave (respiração)
-        dollGroup.position.y = THREE.MathUtils.lerp(dollGroup.position.y, -0.5 + Math.sin(idleTime) * 0.05, 0.1);
-        
-        // Reset rotação corpo
+
+        // Respiração
+        dollGroup.position.y = THREE.MathUtils.lerp(
+          dollGroup.position.y,
+          -0.5 + Math.sin(idleTime) * 0.05,
+          0.1,
+        );
+
+        // Base do corpo em idle (pode ser sobreposto na fase "wave")
         dollGroup.rotation.z = THREE.MathUtils.lerp(dollGroup.rotation.z, 0, 0.1);
         dollGroup.rotation.y = THREE.MathUtils.lerp(dollGroup.rotation.y, 0, 0.1);
 
@@ -228,11 +275,81 @@ export default function Home() {
         shoeLeft.position.y = THREE.MathUtils.lerp(shoeLeft.position.y, -0.8, 0.1);
         shoeRight.position.y = THREE.MathUtils.lerp(shoeRight.position.y, -0.8, 0.1);
 
-        // Mãos vão para uma posição mais afastada e mais para frente
-        handLeft.position.z = THREE.MathUtils.lerp(handLeft.position.z, 0.55, 0.1); // mais para frente
-        handRight.position.z = THREE.MathUtils.lerp(handRight.position.z, 0.55, 0.1); // mais para frente
-        handLeft.position.x = THREE.MathUtils.lerp(handLeft.position.x, -1.15, 0.1); // mais afastada
-        handRight.position.x = THREE.MathUtils.lerp(handRight.position.x, 1.15, 0.1); // mais afastada
+        // Mãos em posição idle (pode ser sobreposto por wipe/wave)
+        handLeft.position.z = THREE.MathUtils.lerp(handLeft.position.z, handIdleZ, 0.1);
+        handRight.position.z = THREE.MathUtils.lerp(handRight.position.z, handIdleZ, 0.1);
+        handLeft.position.x = THREE.MathUtils.lerp(handLeft.position.x, handIdleXLeft, 0.1);
+        handRight.position.x = THREE.MathUtils.lerp(handRight.position.x, handIdleXRight, 0.1);
+        handLeft.position.y = THREE.MathUtils.lerp(handLeft.position.y, handIdleY, 0.1);
+        handRight.position.y = THREE.MathUtils.lerp(handRight.position.y, handIdleY, 0.1);
+
+        // --- Sequência pós-caminhada ---
+        if (phase === "sweat") {
+          phaseT += dt;
+          const a = smooth01(phaseT / 0.6);
+          sweatMat.opacity = 0.9 * a;
+          sweat.position.y = 1.55 - a * 0.08;
+          if (a >= 1) {
+            phase = "wipe";
+            phaseT = 0;
+          }
+        } else if (phase === "wipe") {
+          phaseT += dt;
+          const p = clamp01(phaseT / 1.1);
+          const up = p < 0.5 ? smooth01(p / 0.5) : smooth01((1 - p) / 0.5);
+
+          // Mão esquerda sobe até a testa e volta
+           // Alvo baseado na posição real da gota (pra mão "chegar" nela)
+           const targetX = sweat.position.x - 0.02;
+           const targetY = sweat.position.y - 0.05;
+           const targetZ = sweat.position.z + 0.12;
+           const wipeX = THREE.MathUtils.lerp(handIdleXLeft, targetX, up);
+           const wipeY = THREE.MathUtils.lerp(handIdleY, targetY, up);
+           const wipeZ = THREE.MathUtils.lerp(handIdleZ, targetZ, up);
+          handLeft.position.set(wipeX, wipeY, wipeZ);
+
+          // Suor some enquanto limpa
+          const fade = 1 - smooth01(Math.max(0, (p - 0.15) / 0.55));
+          sweatMat.opacity = 0.9 * fade;
+          if (p >= 1) {
+            sweat.visible = false;
+            sweatMat.opacity = 0;
+            phase = "postWipeWait";
+            phaseT = 0;
+          }
+        } else if (phase === "postWipeWait") {
+          phaseT += dt;
+          if (phaseT >= 2) {
+            phase = "wave";
+            phaseT = 0;
+          }
+        } else if (phase === "wave") {
+          phaseT += dt;
+          const duration = 3.0;
+          const inOut = smooth01(Math.min(phaseT / 0.35, 1)) * smooth01(Math.min((duration - phaseT) / 0.35, 1));
+
+          // Mão direita acena
+          const baseX = handIdleXRight;
+          const baseY = handIdleY;
+          const baseZ = handIdleZ;
+          const liftY = THREE.MathUtils.lerp(baseY, 0.75, inOut);
+          const liftZ = THREE.MathUtils.lerp(baseZ, 1.0, inOut);
+          const waveX = baseX + Math.sin(phaseT * 10) * 0.14 * inOut;
+          const waveY = liftY + Math.sin(phaseT * 5) * 0.03 * inOut;
+          const waveZ = liftZ + Math.cos(phaseT * 10) * 0.05 * inOut;
+          handRight.position.set(waveX, waveY, waveZ);
+
+          // Corpo mexe um pouco enquanto acena
+          dollGroup.rotation.z = Math.sin(phaseT * 4) * 0.06 * inOut;
+          dollGroup.rotation.y = Math.sin(phaseT * 2) * 0.03 * inOut;
+
+          if (phaseT >= duration) {
+            phase = "idle";
+            phaseT = 0;
+          }
+        } else if (phase === "idle") {
+          // nada extra além do idle base
+        }
       }
 
       renderer.render(scene, camera);
