@@ -84,6 +84,8 @@ export default function Home() {
     let isBlinking = false;
     // Referências para highlights
     const highlights = [highlightLeft, highlightRight];
+    // Forçar olhos fechados (usado no suspiro)
+    let forceEyesClosed = false;
 
     dollGroup.add(eyeLeft, highlightLeft, eyeRight, highlightRight);
 
@@ -165,6 +167,33 @@ export default function Home() {
     sweat.visible = false;
     dollGroup.add(sweat);
 
+    // --- Nuvemzinha do suspiro (anime puff) ---
+    const puffGeo = new THREE.SphereGeometry(0.14, 24, 24);
+    const puffMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.95,
+      metalness: 0,
+      transparent: true,
+      opacity: 0,
+    });
+    const puffGroup = new THREE.Group();
+    const puff1 = new THREE.Mesh(puffGeo, puffMat);
+    const puff2 = new THREE.Mesh(puffGeo, puffMat);
+    const puff3 = new THREE.Mesh(puffGeo, puffMat);
+    const puff4 = new THREE.Mesh(puffGeo, puffMat);
+    puff1.position.set(0, 0, 0);
+    puff2.position.set(0.16, 0.03, 0.02);
+    puff2.scale.set(0.9, 0.9, 0.9);
+    puff3.position.set(-0.14, 0.06, 0.01);
+    puff3.scale.set(0.85, 0.85, 0.85);
+    puff4.position.set(0.04, 0.14, 0.01);
+    puff4.scale.set(0.75, 0.75, 0.75);
+    puffGroup.add(puff1, puff2, puff3, puff4);
+    puffGroup.visible = false;
+    // Posição base: perto da boca
+    puffGroup.position.set(-0.05, 0.88, 1.22);
+    dollGroup.add(puffGroup);
+
     // --- Animação ---
     let frameId: number;
     let time = 0;
@@ -190,31 +219,37 @@ export default function Home() {
       time += dt;
 
 
-      // --- ANIMAÇÃO DE PISCAR ---
-      if (!isBlinking) {
-        blinkTimer -= 0.015;
-        if (blinkTimer <= 0) {
-          isBlinking = true;
-          blinkDuration = 0.08 + Math.random() * 0.08; // duração do piscar
-        }
-        // Highlights visíveis
-        highlights.forEach(h => h.visible = true);
+      // --- ANIMAÇÃO DE PISCAR (com override do suspiro) ---
+      if (forceEyesClosed) {
+        eyeLeft.scale.y = THREE.MathUtils.lerp(eyeLeft.scale.y, 0.05, 0.35);
+        eyeRight.scale.y = THREE.MathUtils.lerp(eyeRight.scale.y, 0.05, 0.35);
+        highlights.forEach((h) => (h.visible = false));
       } else {
-        blinkDuration -= 0.015;
-        // Olhos fecham
-        eyeLeft.scale.y = THREE.MathUtils.lerp(eyeLeft.scale.y, 0.05, 0.5);
-        eyeRight.scale.y = THREE.MathUtils.lerp(eyeRight.scale.y, 0.05, 0.5);
-        // Highlights somem
-        highlights.forEach(h => h.visible = false);
-        if (blinkDuration <= 0) {
-          isBlinking = false;
-          blinkTimer = 1.5 + Math.random() * 2.5; // tempo até o próximo piscar
+        if (!isBlinking) {
+          blinkTimer -= dt;
+          if (blinkTimer <= 0) {
+            isBlinking = true;
+            blinkDuration = 0.08 + Math.random() * 0.08; // duração do piscar
+          }
+          // Highlights visíveis
+          highlights.forEach((h) => (h.visible = true));
+        } else {
+          blinkDuration -= dt;
+          // Olhos fecham
+          eyeLeft.scale.y = THREE.MathUtils.lerp(eyeLeft.scale.y, 0.05, 0.5);
+          eyeRight.scale.y = THREE.MathUtils.lerp(eyeRight.scale.y, 0.05, 0.5);
+          // Highlights somem
+          highlights.forEach((h) => (h.visible = false));
+          if (blinkDuration <= 0) {
+            isBlinking = false;
+            blinkTimer = 1.5 + Math.random() * 2.5; // tempo até o próximo piscar
+          }
         }
-      }
-      if (!isBlinking) {
-        // Olhos abertos
-        eyeLeft.scale.y = THREE.MathUtils.lerp(eyeLeft.scale.y, eyeScale * 1.2, 0.2);
-        eyeRight.scale.y = THREE.MathUtils.lerp(eyeRight.scale.y, eyeScale * 1.2, 0.2);
+        if (!isBlinking) {
+          // Olhos abertos
+          eyeLeft.scale.y = THREE.MathUtils.lerp(eyeLeft.scale.y, eyeScale * 1.2, 0.2);
+          eyeRight.scale.y = THREE.MathUtils.lerp(eyeRight.scale.y, eyeScale * 1.2, 0.2);
+        }
       }
 
       // Estado 1: Andando
@@ -319,6 +354,31 @@ export default function Home() {
           }
         } else if (phase === "postWipeWait") {
           phaseT += dt;
+          // Suspiro: olhos fecham + puff aparece e sobe
+          const sighDuration = 1.2;
+          const isSighing = phaseT < sighDuration;
+          forceEyesClosed = isSighing;
+          if (isSighing) {
+            const t = phaseT;
+            const inT = smooth01(Math.min(t / 0.25, 1));
+            const outT = smooth01(Math.min(Math.max(0, (t - 0.85) / 0.35), 1));
+            const opacity = 0.7 * inT * (1 - outT);
+
+            puffGroup.visible = true;
+            (puffMat as THREE.MeshStandardMaterial).opacity = opacity;
+
+            // Drift fofinho (sobe e vai um pouco pro lado)
+            puffGroup.position.x = THREE.MathUtils.lerp(-0.05, -0.45, smooth01(Math.min(t / 1.1, 1)));
+            puffGroup.position.y = THREE.MathUtils.lerp(0.88, 1.18, smooth01(Math.min(t / 1.1, 1)));
+            puffGroup.position.z = THREE.MathUtils.lerp(1.22, 1.35, smooth01(Math.min(t / 1.1, 1)));
+
+            const s = THREE.MathUtils.lerp(0.65, 1.25, smooth01(Math.min(t / 1.1, 1)));
+            puffGroup.scale.set(s, s, s);
+          } else {
+            puffGroup.visible = false;
+            (puffMat as THREE.MeshStandardMaterial).opacity = 0;
+          }
+
           if (phaseT >= 2) {
             phase = "wave";
             phaseT = 0;
