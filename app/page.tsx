@@ -8,8 +8,33 @@ export default function Home() {
   const [startHiding, setStartHiding] = useState(false);
   const [showSpeechBubble, setShowSpeechBubble] = useState(false);
   const [playerName, setPlayerName] = useState("");
+  const [bubbleText, setBubbleText] = useState("Oiiiii como é o seu nome?");
+  const [nameLocked, setNameLocked] = useState(false);
   const [musicMuted, setMusicMuted] = useState(false);
   const initRef = useRef(false);
+
+  // Refs para sincronizar UI (React) -> animação (Three.js)
+  const timeRef = useRef(0);
+  const weirdUntilRef = useRef(0);
+
+  const normalizeName = (s: string) =>
+    s
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+
+  const handleSubmitName = () => {
+    const norm = normalizeName(playerName);
+    if (!norm) return;
+
+    setNameLocked(true);
+
+    if (norm === "otavio") {
+      setBubbleText("Oxi???? o que voce ta fazendo aqui Otavio? Vai voltar a programar hahahaha");
+      weirdUntilRef.current = timeRef.current + 3.8;
+    }
+  };
 
   // Em mobile, o 100vh + barra do navegador pode permitir um pequeno scroll.
   // Travamos overflow/overscroll no html/body enquanto esta tela estiver ativa.
@@ -366,8 +391,9 @@ export default function Home() {
 
     // C. Rosto
     const eyeScale = 0.18;
+    const eyeBaseScale = new THREE.Vector3(eyeScale, eyeScale * 1.2, eyeScale * 0.5);
     const eyeLeft = new THREE.Mesh(sphereGeoMid, eyeMat);
-    eyeLeft.scale.set(eyeScale, eyeScale * 1.2, eyeScale * 0.5);
+    eyeLeft.scale.copy(eyeBaseScale);
     eyeLeft.position.set(-0.45, 1.1, 1.05);
 
     const highlightLeft = new THREE.Mesh(sphereGeoMid, highlightMat);
@@ -393,9 +419,41 @@ export default function Home() {
     dollGroup.add(eyeLeft, highlightLeft, eyeRight, highlightRight);
 
     const mouth = new THREE.Mesh(sphereGeoMid, mouthMat);
-    mouth.scale.set(0.08, 0.05, 0.05);
+    const mouthBaseScale = new THREE.Vector3(0.08, 0.05, 0.05);
+    mouth.scale.copy(mouthBaseScale);
     mouth.position.set(0, 0.85, 1.15);
     dollGroup.add(mouth);
+
+    // 1. Boca reta (agora usando Capsule para ficar redondinha e fofa)
+    const mouthLineGeo: THREE.BufferGeometry = new (THREE as any).CapsuleGeometry(0.04, 0.5, 4, 8); // Raio, Comprimento
+    const mouthLine = new THREE.Mesh(mouthLineGeo, eyeMat);
+    // Girar para ficar horizontal
+    mouthLine.rotation.z = Math.PI / 2;
+    const mouthLineBaseScale = new THREE.Vector3(1, 1, 1);
+    mouthLine.scale.copy(mouthLineBaseScale);
+    mouthLine.position.set(0, 0.86, 1.16);
+    mouthLine.visible = false;
+    dollGroup.add(mouthLine);
+
+    // 2. Sobrancelhas (ajuste de escala e posição inicial)
+    const browGeo = new THREE.TorusGeometry(0.22, 0.045, 10, 22, Math.PI);
+    const browLeft = new THREE.Mesh(browGeo, hairMat);
+    const browRight = new THREE.Mesh(browGeo, hairMat);
+
+    // Escala base visível (quando aparecerem)
+    const browBaseScale = new THREE.Vector3(1, 1, 1);
+    const browHiddenScale = new THREE.Vector3(0.001, 0.001, 0.001);
+
+    // Começam invisíveis (escala 0)
+    browLeft.scale.setScalar(0.001);
+    browRight.scale.setScalar(0.001);
+
+    browLeft.position.set(-0.52, 1.34, 1.16);
+    browRight.position.set(0.52, 1.34, 1.16);
+
+    browLeft.visible = false;
+    browRight.visible = false;
+    dollGroup.add(browLeft, browRight);
 
     const blushScale = 0.25;
     const blushLeft = new THREE.Mesh(sphereGeoMid, blushMat);
@@ -620,6 +678,7 @@ export default function Home() {
       frameId = requestAnimationFrame(animate);
       const dt = 0.015;
       time += dt;
+      timeRef.current = time;
 
       // Atualiza partículas sempre (as ativas vão sumir naturalmente)
       updatePool(dustPool, dt);
@@ -657,6 +716,84 @@ export default function Home() {
           eyeLeft.scale.y = THREE.MathUtils.lerp(eyeLeft.scale.y, eyeScale * 1.2, 0.2);
           eyeRight.scale.y = THREE.MathUtils.lerp(eyeRight.scale.y, eyeScale * 1.2, 0.2);
         }
+      }
+
+      // --- Expressão de estranhamento "Otavio" (Emoji 🤨) ---
+      const weirdActive = weirdUntilRef.current > time;
+
+      if (weirdActive && !forceEyesClosed) {
+        // Sobrancelhas aparecem
+        browLeft.visible = true;
+        browRight.visible = true;
+        browLeft.scale.lerp(browBaseScale, 0.2);
+        browRight.scale.lerp(browBaseScale, 0.2);
+
+        // --- SOBRANCELHA ESQUERDA (Baixa/Desconfiada) ---
+        // Desce um pouco e fica mais "reta"
+        browLeft.position.x = THREE.MathUtils.lerp(browLeft.position.x, -0.52, 0.2);
+        browLeft.position.y = THREE.MathUtils.lerp(browLeft.position.y, 1.25, 0.2); // Mais baixa
+        browLeft.rotation.z = THREE.MathUtils.lerp(browLeft.rotation.z, 0.1, 0.2); // Quase reta
+
+        // --- SOBRANCELHA DIREITA (Levantada/Questionando) ---
+        // Sobe bem alto e arqueia
+        browRight.position.x = THREE.MathUtils.lerp(browRight.position.x, 0.52, 0.2);
+        browRight.position.y = THREE.MathUtils.lerp(browRight.position.y, 1.55, 0.2); // Bem alta
+        browRight.rotation.z = THREE.MathUtils.lerp(browRight.rotation.z, 0.4, 0.2); // Arqueada
+
+        // --- OLHOS (Sem deformar demais) ---
+        // Olho esquerdo: levemente "achatado" (ceticismo), mas mantendo largura
+        eyeLeft.scale.x = THREE.MathUtils.lerp(eyeLeft.scale.x, eyeScale, 0.2);
+        eyeLeft.scale.y = THREE.MathUtils.lerp(eyeLeft.scale.y, eyeScale * 0.9, 0.2);
+        eyeLeft.scale.z = THREE.MathUtils.lerp(eyeLeft.scale.z, eyeScale * 0.5, 0.2);
+
+        // Olho direito: bem aberto (acompanha a sobrancelha alta)
+        eyeRight.scale.x = THREE.MathUtils.lerp(eyeRight.scale.x, eyeScale, 0.2);
+        eyeRight.scale.y = THREE.MathUtils.lerp(eyeRight.scale.y, eyeScale * 1.4, 0.2); // Alongado verticalmente
+        eyeRight.scale.z = THREE.MathUtils.lerp(eyeRight.scale.z, eyeScale * 0.5, 0.2);
+
+        // --- BOCA ---
+        mouth.visible = false;
+        mouthLine.visible = true;
+
+        // Boca fica reta, mas move levemente para o lado da sobrancelha levantada (charme)
+        mouthLine.position.x = THREE.MathUtils.lerp(mouthLine.position.x, 0.05, 0.1);
+        mouthLine.position.y = 0.86;
+
+        // Leve escala na boca falando
+        const talk = 0.5 + 0.5 * Math.sin(time * 20); // Fala rápida
+        // A boca muda de largura levemente ao falar, mas mantém a forma de linha
+        mouthLine.scale.set(
+          1 + talk * 0.1, // Comprimento
+          1 + talk * 0.2, // Espessura
+          1,
+        );
+      } else {
+        // --- VOLTA AO NORMAL (Transição suave) ---
+
+        // Recolhe sobrancelhas
+        browLeft.scale.lerp(browHiddenScale, 0.25);
+        browRight.scale.lerp(browHiddenScale, 0.25);
+        if (browLeft.scale.x <= 0.01) {
+          browLeft.visible = false;
+          browRight.visible = false;
+        }
+
+        // Reseta posição das sobrancelhas para a próxima vez
+        browLeft.position.y = THREE.MathUtils.lerp(browLeft.position.y, 1.34, 0.2);
+        browRight.position.y = THREE.MathUtils.lerp(browRight.position.y, 1.34, 0.2);
+
+        // Olhos voltam ao formato base
+        eyeLeft.scale.lerp(eyeBaseScale, 0.15);
+        eyeRight.scale.lerp(eyeBaseScale, 0.15);
+
+        // Boca volta ao "O" ou sorriso padrão
+        mouthLine.visible = false;
+        mouth.visible = true;
+        mouth.scale.lerp(mouthBaseScale, 0.15);
+
+        // Reset da posição da boca de linha
+        mouthLine.position.x = 0;
+        mouthLine.scale.set(1, 1, 1);
       }
 
       // Parte 0: Entra correndo pela esquerda até o meio
@@ -1020,8 +1157,12 @@ export default function Home() {
 
     // Reseta UI/flags caso reinicie
     setShowSpeechBubble(false);
+    setBubbleText("Oiiiii como é o seu nome?");
+    setNameLocked(false);
+    setPlayerName("");
     bubbleShownRef.current = false;
     helloPlayedRef.current = false;
+    weirdUntilRef.current = 0;
 
     setStartHiding(true);
     window.setTimeout(() => {
@@ -1078,13 +1219,41 @@ export default function Home() {
       {started && showSpeechBubble ? (
         <div className="pointer-events-auto absolute left-1/2 top-8 z-20 w-[min(92vw,420px)] -translate-x-1/2">
           <div className="relative rounded-2xl border border-zinc-200 bg-white/90 px-5 py-4 text-zinc-900 shadow-sm">
-            <div className="text-base font-semibold">Oiiiii como é o seu nome?</div>
-            <input
-              value={playerName}
-              onChange={(e) => setPlayerName(e.target.value)}
-              placeholder="Seu nome"
-              className="mt-3 w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
-            />
+            <div className="text-base font-semibold">{bubbleText}</div>
+            <div className="relative mt-3">
+              <input
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSubmitName();
+                }}
+                placeholder="Seu nome"
+                disabled={nameLocked}
+                className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 pr-12 text-base outline-none focus:border-zinc-400 disabled:opacity-70"
+              />
+              <button
+                type="button"
+                onClick={handleSubmitName}
+                disabled={nameLocked || !playerName.trim()}
+                aria-label="Enviar nome"
+                title="Enviar"
+                className="absolute right-2 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg bg-black/80 text-white transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-4 w-4"
+                >
+                  <path d="M22 2 11 13" />
+                  <path d="M22 2 15 22l-4-9-9-4 20-7z" />
+                </svg>
+              </button>
+            </div>
             <div className="absolute left-10 top-full h-4 w-4 -translate-y-2 rotate-45 border-b border-r border-zinc-200 bg-white/90" />
           </div>
         </div>
