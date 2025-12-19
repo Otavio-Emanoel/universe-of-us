@@ -656,8 +656,8 @@ export default function Home() {
     const setCameraForViewport = (w: number, h: number) => {
       if (worldModeRef.current === "inside") {
         const t = THREE.MathUtils.clamp((768 - w) / 768, 0, 1);
-        const z = 6.6 + t * 3.8; // bem mais longe no interior (desktop -> mobile)
-        const y = 1.2 + t * 0.35;
+        const z = 6.8 + t * 8.5; // ainda mais longe no celular
+        const y = 1.2 + t * 0.38;
         camera.position.set(0, y, z);
         // Mira levemente para o console (z negativo)
         camera.lookAt(0, 0.28, -0.35);
@@ -923,28 +923,34 @@ export default function Home() {
     scene.add(rocketInterior);
 
     const interiorWallMat = new THREE.MeshStandardMaterial({
-      color: 0xf3f4f6,
-      roughness: 0.95,
-      metalness: 0.0,
+      color: 0xd9e0ea,
+      roughness: 0.92,
+      metalness: 0.02,
       side: THREE.BackSide,
     });
     const interiorFloorMat = new THREE.MeshStandardMaterial({
-      color: 0xe5e7eb,
-      roughness: 1.0,
-      metalness: 0.0,
+      color: 0xbfc9d6,
+      roughness: 0.98,
+      metalness: 0.02,
       side: THREE.DoubleSide,
     });
-    const interiorAccentMat = new THREE.MeshStandardMaterial({ color: 0x93c5fd, roughness: 0.75, metalness: 0.05 });
+    const interiorAccentMat = new THREE.MeshStandardMaterial({ color: 0x6ea8d6, roughness: 0.65, metalness: 0.06 });
 
-    const cabin = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 6.8, 28, 1, true), interiorWallMat);
+    // Cabine maior para evitar ver o "fundo" escuro nas bordas no mobile
+    const cabin = new THREE.Mesh(new THREE.CylinderGeometry(4.2, 4.2, 7.6, 32, 1, true), interiorWallMat);
     cabin.rotation.z = Math.PI / 2;
     cabin.position.set(0, 1.2, 0);
     rocketInterior.add(cabin);
 
-    const cabinFloor = new THREE.Mesh(new THREE.PlaneGeometry(6.2, 6.2), interiorFloorMat);
+    const cabinFloor = new THREE.Mesh(new THREE.PlaneGeometry(8.2, 8.2), interiorFloorMat);
     cabinFloor.rotation.x = -Math.PI / 2;
     cabinFloor.position.set(0, -1.42, 0);
     rocketInterior.add(cabinFloor);
+
+    const cabinCeil = new THREE.Mesh(new THREE.PlaneGeometry(8.2, 8.2), new THREE.MeshStandardMaterial({ color: 0xd0d8e3, roughness: 0.95, metalness: 0.02, side: THREE.DoubleSide }));
+    cabinCeil.rotation.x = Math.PI / 2;
+    cabinCeil.position.set(0, 3.45, 0);
+    rocketInterior.add(cabinCeil);
 
     const capGeo = new THREE.CircleGeometry(3.2, 28);
     const capA = new THREE.Mesh(capGeo, new THREE.MeshStandardMaterial({ color: 0xf3f4f6, roughness: 0.95, metalness: 0.0 }));
@@ -1057,11 +1063,30 @@ export default function Home() {
     rocketInterior.add(cabinLight2);
 
     // Mesas + computadores
-    const deskTopMat = new THREE.MeshStandardMaterial({ color: 0xfafafa, roughness: 0.95, metalness: 0.0 });
-    const deskLegMat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 1.0, metalness: 0.0 });
+    const deskTopMat = new THREE.MeshStandardMaterial({ color: 0xe7edf6, roughness: 0.92, metalness: 0.02 });
+    const deskLegMat = new THREE.MeshStandardMaterial({ color: 0x7b8796, roughness: 0.95, metalness: 0.02 });
     const monitorMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.85, metalness: 0.05 });
-    const screenMat = new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x0ea5e9, emissiveIntensity: 0.55, roughness: 0.4, metalness: 0.0 });
+    const screenMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     const keyboardMat = new THREE.MeshStandardMaterial({ color: 0xe5e7eb, roughness: 1.0, metalness: 0.0 });
+
+    // Textura das telas
+    const pcScreenMat = (screenMat as THREE.MeshBasicMaterial).clone();
+    texLoader.load(
+      "/pc.jpg",
+      (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        tex.needsUpdate = true;
+        pcScreenMat.map = tex;
+        pcScreenMat.needsUpdate = true;
+      },
+      undefined,
+      () => {
+        // fallback: mantém cor base
+      },
+    );
 
     const makeDesk = (x: number, z: number, rotY: number) => {
       const g = new THREE.Group();
@@ -1086,7 +1111,8 @@ export default function Home() {
       const monitor = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.38, 0.06), monitorMat);
       monitor.position.set(0, 1.02, -0.15);
       g.add(monitor);
-      const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.48, 0.3), screenMat);
+      // Tela um pouco maior
+      const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 0.36), pcScreenMat);
       screen.position.set(0, 1.02, -0.12);
       g.add(screen);
 
@@ -2580,7 +2606,7 @@ export default function Home() {
           rocketGroup.visible = false;
           rocketInterior.visible = true;
 
-          scene.background = new THREE.Color(0x0b1220);
+          scene.background = new THREE.Color(0xc7d0dc);
 
           // Coloca a boneca dentro com a gente
           dollGroup.visible = true;
