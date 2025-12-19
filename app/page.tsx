@@ -157,9 +157,12 @@ export default function Home() {
     shoeRight.position.set(0.4, shoeBaseY, 0); // Posição base
     dollGroup.add(shoeLeft, shoeRight);
 
-    // POSIÇÃO INICIAL (Longe no fundo)
+    // POSIÇÃO INICIAL (entra pela esquerda)
+    dollGroup.position.x = -10;
     dollGroup.position.y = -0.5;
-    dollGroup.position.z = -15; 
+    dollGroup.position.z = -15;
+    // Começa virada para a direita (correndo para o centro)
+    dollGroup.rotation.y = Math.PI / 2;
     scene.add(dollGroup);
 
     // --- Gota de suor (aparece após a caminhada) ---
@@ -205,6 +208,93 @@ export default function Home() {
     puffGroup.position.set(-0.05, 0.88, 1.22);
     dollGroup.add(puffGroup);
 
+    // --- Poeira/Fumacinha da corrida (partículas simples) ---
+    const particleGroup = new THREE.Group();
+    scene.add(particleGroup);
+
+    const dustGeo = new THREE.SphereGeometry(0.08, 16, 16);
+    const smokeGeo = new THREE.SphereGeometry(0.1, 16, 16);
+
+    const makeMat = (color: number, opacity: number) =>
+      new THREE.MeshStandardMaterial({
+        color,
+        roughness: 1,
+        metalness: 0,
+        transparent: true,
+        opacity,
+      });
+
+    type Particle = {
+      mesh: THREE.Mesh;
+      life: number;
+      maxLife: number;
+      baseOpacity: number;
+    };
+
+    const dustPool: Particle[] = [];
+    const smokePool: Particle[] = [];
+
+    const createPool = (
+      pool: Particle[],
+      count: number,
+      geo: THREE.BufferGeometry,
+      mat: THREE.MeshStandardMaterial,
+      baseOpacity: number,
+      maxLife: number,
+    ) => {
+      for (let i = 0; i < count; i++) {
+        const m = new THREE.Mesh(geo, mat.clone());
+        m.visible = false;
+        m.userData.vel = new THREE.Vector3();
+        m.userData.spin = new THREE.Vector3();
+        particleGroup.add(m);
+        pool.push({ mesh: m, life: 0, maxLife, baseOpacity });
+      }
+    };
+
+    createPool(dustPool, 14, dustGeo, makeMat(0xd8c8b2, 0.55), 0.55, 0.55);
+    createPool(smokePool, 10, smokeGeo, makeMat(0xffffff, 0.35), 0.35, 0.75);
+
+    const tmpWorld = new THREE.Vector3();
+    const spawnFromPool = (pool: Particle[], pos: THREE.Vector3, vel: THREE.Vector3) => {
+      const p = pool.find((x) => x.life <= 0);
+      if (!p) return;
+      p.life = p.maxLife;
+      p.mesh.visible = true;
+      p.mesh.position.copy(pos);
+      p.mesh.scale.setScalar(0.6 + Math.random() * 0.45);
+      (p.mesh.material as THREE.MeshStandardMaterial).opacity = p.baseOpacity;
+      (p.mesh.userData.vel as THREE.Vector3).copy(vel);
+      (p.mesh.userData.spin as THREE.Vector3).set(
+        (Math.random() - 0.5) * 2,
+        (Math.random() - 0.5) * 2,
+        (Math.random() - 0.5) * 2,
+      );
+    };
+
+    const updatePool = (pool: Particle[], dt: number) => {
+      for (const p of pool) {
+        if (p.life <= 0) continue;
+        p.life -= dt;
+        const t = THREE.MathUtils.clamp(p.life / p.maxLife, 0, 1);
+        const ease = t * t;
+        const mat = p.mesh.material as THREE.MeshStandardMaterial;
+        mat.opacity = p.baseOpacity * ease;
+        p.mesh.position.addScaledVector(p.mesh.userData.vel as THREE.Vector3, dt);
+        const s = p.mesh.scale.x + dt * 0.55;
+        p.mesh.scale.setScalar(s);
+        p.mesh.rotation.x += (p.mesh.userData.spin as THREE.Vector3).x * dt * 0.6;
+        p.mesh.rotation.y += (p.mesh.userData.spin as THREE.Vector3).y * dt * 0.6;
+        p.mesh.rotation.z += (p.mesh.userData.spin as THREE.Vector3).z * dt * 0.6;
+        if (p.life <= 0) {
+          p.mesh.visible = false;
+        }
+      }
+    };
+
+    let dustSpawnAcc = 0;
+    let smokeSpawnAcc = 0;
+
     // --- Animação ---
     let frameId: number;
     let time = 0;
@@ -214,8 +304,16 @@ export default function Home() {
     const walkSpeed = 0.06; // Velocidade de movimento
     const animSpeed = 8; // Velocidade do movimento das pernas
 
-    type Phase = "walk" | "sweat" | "wipe" | "postWipeWait" | "wave" | "idle";
-    let phase: Phase = "walk";
+    type Phase =
+      | "enterRun"
+      | "turnFront"
+      | "walk"
+      | "sweat"
+      | "wipe"
+      | "postWipeWait"
+      | "wave"
+      | "idle";
+    let phase: Phase = "enterRun";
     let phaseT = 0;
 
     const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -228,6 +326,10 @@ export default function Home() {
       frameId = requestAnimationFrame(animate);
       const dt = 0.015;
       time += dt;
+
+      // Atualiza partículas sempre (as ativas vão sumir naturalmente)
+      updatePool(dustPool, dt);
+      updatePool(smokePool, dt);
 
 
       // --- ANIMAÇÃO DE PISCAR (com override do suspiro) ---
@@ -263,8 +365,116 @@ export default function Home() {
         }
       }
 
-      // Estado 1: Andando
-      if (phase === "walk" && dollGroup.position.z < stopZ) {
+      // Parte 0: Entra correndo pela esquerda até o meio
+      if (phase === "enterRun") {
+        const runAnimSpeed = animSpeed * 1.7;
+        const runSpeedX = 0.22;
+
+        dollGroup.position.x += runSpeedX;
+        dollGroup.position.y = -0.5 + Math.abs(Math.sin(time * runAnimSpeed)) * 0.18;
+
+        // Leve inclinação e wobble enquanto corre
+        dollGroup.rotation.z = Math.sin(time * (runAnimSpeed / 2)) * 0.07;
+        dollGroup.rotation.y = Math.PI / 2;
+
+        // Pés mais rápidos
+        shoeLeft.position.z = Math.sin(time * runAnimSpeed) * 0.55;
+        shoeRight.position.z = Math.sin(time * runAnimSpeed + Math.PI) * 0.55;
+        shoeLeft.position.y = shoeBaseY + Math.max(0, Math.sin(time * runAnimSpeed)) * (shoeStepLift * 1.35);
+        shoeRight.position.y = shoeBaseY + Math.max(0, Math.sin(time * runAnimSpeed + Math.PI)) * (shoeStepLift * 1.35);
+
+        // Mãos mais rápidas
+        handLeft.position.z = Math.sin(time * runAnimSpeed + Math.PI) * 0.35 + 0.25;
+        handRight.position.z = Math.sin(time * runAnimSpeed) * 0.35 + 0.25;
+        handLeft.position.x = THREE.MathUtils.lerp(handLeft.position.x, handWalkXLeft, 0.25);
+        handRight.position.x = THREE.MathUtils.lerp(handRight.position.x, handWalkXRight, 0.25);
+        handLeft.position.y = THREE.MathUtils.lerp(handLeft.position.y, handIdleY, 0.25);
+        handRight.position.y = THREE.MathUtils.lerp(handRight.position.y, handIdleY, 0.25);
+
+        // Chegou no centro
+        if (dollGroup.position.x >= 0) {
+          dollGroup.position.x = 0;
+          phase = "turnFront";
+          phaseT = 0;
+        }
+
+        // Poeirinhas e fumacinha enquanto corre (saindo perto dos pés)
+        dustSpawnAcc += dt;
+        smokeSpawnAcc += dt;
+
+        if (dustSpawnAcc >= 0.05) {
+          dustSpawnAcc = 0;
+          const left = shoeLeft.getWorldPosition(tmpWorld.clone());
+          const right = shoeRight.getWorldPosition(tmpWorld.clone());
+
+          // Trail atrás (corrida no +X)
+          left.x -= 0.28 + Math.random() * 0.12;
+          right.x -= 0.28 + Math.random() * 0.12;
+          left.y += 0.02;
+          right.y += 0.02;
+
+          spawnFromPool(
+            dustPool,
+            left,
+            new THREE.Vector3(
+              -(0.35 + Math.random() * 0.2),
+              0.18 + Math.random() * 0.12,
+              (Math.random() - 0.5) * 0.25,
+            ),
+          );
+          spawnFromPool(
+            dustPool,
+            right,
+            new THREE.Vector3(
+              -(0.35 + Math.random() * 0.2),
+              0.18 + Math.random() * 0.12,
+              (Math.random() - 0.5) * 0.25,
+            ),
+          );
+        }
+
+        if (smokeSpawnAcc >= 0.11) {
+          smokeSpawnAcc = 0;
+          const pos = shoeLeft.getWorldPosition(tmpWorld.clone());
+          pos.x -= 0.35 + Math.random() * 0.15;
+          pos.y += 0.12;
+          pos.z += (Math.random() - 0.5) * 0.15;
+          spawnFromPool(
+            smokePool,
+            pos,
+            new THREE.Vector3(
+              -(0.18 + Math.random() * 0.1),
+              0.28 + Math.random() * 0.18,
+              (Math.random() - 0.5) * 0.18,
+            ),
+          );
+        }
+      }
+      // Parte 0.5: Vira para frente
+      else if (phase === "turnFront") {
+        phaseT += dt;
+        const t = smooth01(phaseT / 0.45);
+        dollGroup.rotation.y = THREE.MathUtils.lerp(Math.PI / 2, 0, t);
+        dollGroup.rotation.z = Math.sin(time * 6) * 0.03 * (1 - t);
+        dollGroup.position.y = THREE.MathUtils.lerp(dollGroup.position.y, -0.5 + Math.sin(time * 2) * 0.03, 0.1);
+
+        // Volta pés/mãos para um estado neutro antes da caminhada Z
+        shoeLeft.position.z = THREE.MathUtils.lerp(shoeLeft.position.z, 0, 0.15);
+        shoeRight.position.z = THREE.MathUtils.lerp(shoeRight.position.z, 0, 0.15);
+        shoeLeft.position.y = THREE.MathUtils.lerp(shoeLeft.position.y, shoeBaseY, 0.15);
+        shoeRight.position.y = THREE.MathUtils.lerp(shoeRight.position.y, shoeBaseY, 0.15);
+
+        handLeft.position.z = THREE.MathUtils.lerp(handLeft.position.z, 0.2, 0.2);
+        handRight.position.z = THREE.MathUtils.lerp(handRight.position.z, 0.2, 0.2);
+
+        if (t >= 1) {
+          dollGroup.rotation.y = 0;
+          phase = "walk";
+          phaseT = 0;
+        }
+      }
+      // Estado 1: Andando (como antes)
+      else if (phase === "walk" && dollGroup.position.z < stopZ) {
         // Mover para frente
         dollGroup.position.z += walkSpeed;
 
