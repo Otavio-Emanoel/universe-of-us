@@ -6,15 +6,53 @@ export default function Home() {
   const threeRef = useRef<HTMLDivElement>(null);
   const [started, setStarted] = useState(false);
   const [startHiding, setStartHiding] = useState(false);
+  const [showSpeechBubble, setShowSpeechBubble] = useState(false);
+  const [playerName, setPlayerName] = useState("");
   const initRef = useRef(false);
 
-  // --- Áudio (Web Audio + SpeechSynthesis) ---
+  // Em mobile, o 100vh + barra do navegador pode permitir um pequeno scroll.
+  // Travamos overflow/overscroll no html/body enquanto esta tela estiver ativa.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const html = document.documentElement;
+    const body = document.body;
+
+    const prev = {
+      htmlOverflow: html.style.overflow,
+      bodyOverflow: body.style.overflow,
+      htmlHeight: html.style.height,
+      bodyHeight: body.style.height,
+      htmlOverscroll: (html.style as any).overscrollBehavior,
+      bodyOverscroll: (body.style as any).overscrollBehavior,
+    };
+
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    html.style.height = "100%";
+    body.style.height = "100%";
+    (html.style as any).overscrollBehavior = "none";
+    (body.style as any).overscrollBehavior = "none";
+
+    return () => {
+      html.style.overflow = prev.htmlOverflow;
+      body.style.overflow = prev.bodyOverflow;
+      html.style.height = prev.htmlHeight;
+      body.style.height = prev.bodyHeight;
+      (html.style as any).overscrollBehavior = prev.htmlOverscroll;
+      (body.style as any).overscrollBehavior = prev.bodyOverscroll;
+    };
+  }, []);
+
+  // --- Áudio (Web Audio + SFX) ---
   // Browsers bloqueiam autoplay: iniciamos no clique do botão Start.
   const audioCtxRef = useRef<AudioContext | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
   const musicTimerRef = useRef<number | null>(null);
   const audioUnlockedRef = useRef(false);
   const helloPlayedRef = useRef(false);
+  const helloSfxRef = useRef<HTMLAudioElement | null>(null);
+  const bubbleShownRef = useRef(false);
 
   // --- Música fofinha estilo joguinho ---
   const startBackgroundMusic = () => {
@@ -111,35 +149,13 @@ export default function Home() {
     helloPlayedRef.current = true;
 
     try {
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        const u = new SpeechSynthesisUtterance("hello");
-        u.lang = "en-US";
-        u.rate = 0.98;
-        u.pitch = 1.1;
-        u.volume = 1;
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(u);
-      }
+      const a = helloSfxRef.current ?? new Audio("/hello-sfx.mp3");
+      helloSfxRef.current = a;
+      a.volume = 0.9;
+      a.currentTime = 0;
+      void a.play();
     } catch {
       // ignore
-    }
-
-    const audioCtx = audioCtxRef.current;
-    const masterGain = masterGainRef.current;
-    if (audioCtx && masterGain) {
-      const t = audioCtx.currentTime + 0.02;
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(1100, t);
-      osc.frequency.exponentialRampToValueAtTime(880, t + 0.12);
-      gain.gain.setValueAtTime(0.0001, t);
-      gain.gain.exponentialRampToValueAtTime(0.35, t + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
-      osc.connect(gain);
-      gain.connect(masterGain);
-      osc.start(t);
-      osc.stop(t + 0.2);
     }
   };
 
@@ -783,8 +799,8 @@ export default function Home() {
         dollGroup.rotation.y = THREE.MathUtils.lerp(dollGroup.rotation.y, 0, 0.1);
 
         // Pés voltam pro chão
-        shoeLeft.position.z = THREE.MathUtils.lerp(shoeLeft.position.z, 0, 0.1);
-        shoeRight.position.z = THREE.MathUtils.lerp(shoeRight.position.z, 0, 0.1);
+        shoeLeft.position.z = THREE.MathUtils.lerp(shoeLeft.position.z, 0, 0.5);
+        shoeRight.position.z = THREE.MathUtils.lerp(shoeRight.position.z, 0, 0.5);
         shoeLeft.position.y = THREE.MathUtils.lerp(shoeLeft.position.y, shoeBaseY, 0.1);
         shoeRight.position.y = THREE.MathUtils.lerp(shoeRight.position.y, shoeBaseY, 0.1);
 
@@ -860,8 +876,12 @@ export default function Home() {
           if (phaseT >= 2) {
             phase = "wave";
             phaseT = 0;
-            // Fala "hello" ao começar a acenar
+            // Fala "hello" ao começar a acenar + mostra balão de fala
             sayHello();
+            if (!bubbleShownRef.current) {
+              bubbleShownRef.current = true;
+              setShowSpeechBubble(true);
+            }
           }
         } else if (phase === "wave") {
           phaseT += dt;
@@ -937,11 +957,7 @@ export default function Home() {
 
   useEffect(() => {
     return () => {
-      try {
-        window.speechSynthesis?.cancel();
-      } catch {
-        // ignore
-      }
+      // cleanup
       if (musicTimerRef.current) {
         window.clearInterval(musicTimerRef.current);
         musicTimerRef.current = null;
@@ -951,6 +967,16 @@ export default function Home() {
         ctx.close().catch(() => {});
         audioCtxRef.current = null;
       }
+      const hello = helloSfxRef.current;
+      if (hello) {
+        try {
+          hello.pause();
+          hello.currentTime = 0;
+        } catch {
+          // ignore
+        }
+        helloSfxRef.current = null;
+      }
       audioUnlockedRef.current = false;
     };
   }, []);
@@ -958,6 +984,24 @@ export default function Home() {
   const handleStart = () => {
     // Inicia música no clique (desbloqueia autoplay)
     startBackgroundMusic();
+    // Pré-carrega o SFX para tocar no aceno
+    try {
+      if (!helloSfxRef.current) {
+        const a = new Audio("/hello-sfx.mp3");
+        a.preload = "auto";
+        a.volume = 0.9;
+        helloSfxRef.current = a;
+        a.load();
+      }
+    } catch {
+      // ignore
+    }
+
+    // Reseta UI/flags caso reinicie
+    setShowSpeechBubble(false);
+    bubbleShownRef.current = false;
+    helloPlayedRef.current = false;
+
     setStartHiding(true);
     window.setTimeout(() => {
       setStarted(true);
@@ -966,9 +1010,24 @@ export default function Home() {
 
   return (
     <div
-      className="relative h-screen w-screen overflow-hidden"
+      className="fixed inset-0 overflow-hidden"
       style={{ background: "linear-gradient(to bottom, #FFF0F5, #FFE4E1)" }}
     >
+      {started && showSpeechBubble ? (
+        <div className="pointer-events-auto absolute left-1/2 top-8 z-20 w-[min(92vw,420px)] -translate-x-1/2">
+          <div className="relative rounded-2xl border border-zinc-200 bg-white/90 px-5 py-4 text-zinc-900 shadow-sm">
+            <div className="text-base font-semibold">Oiiiii como é o seu nome?</div>
+            <input
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value)}
+              placeholder="Seu nome"
+              className="mt-3 w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
+            />
+            <div className="absolute left-10 top-full h-4 w-4 -translate-y-2 rotate-45 border-b border-r border-zinc-200 bg-white/90" />
+          </div>
+        </div>
+      ) : null}
+
       {started ? (
         <div ref={threeRef} className="h-full w-full" />
       ) : (
