@@ -47,6 +47,7 @@ export default function Home() {
   const bubbleTypingDoneRef = useRef<null | (() => void)>(null);
   const proceedTimerRef = useRef<number | null>(null);
   const otavioSorryTimerRef = useRef<number | null>(null);
+  const rocketPromptTimerRef = useRef<number | null>(null);
   const quakeSeqRef = useRef({
     active: false,
     restore: false,
@@ -655,10 +656,11 @@ export default function Home() {
     const setCameraForViewport = (w: number, h: number) => {
       if (worldModeRef.current === "inside") {
         const t = THREE.MathUtils.clamp((768 - w) / 768, 0, 1);
-        const z = 3.4 + t * 1.6;
-        const y = 0.85 + t * 0.2;
+        const z = 6.6 + t * 3.8; // bem mais longe no interior (desktop -> mobile)
+        const y = 1.2 + t * 0.35;
         camera.position.set(0, y, z);
-        camera.lookAt(0, 0.45, 0);
+        // Mira levemente para o console (z negativo)
+        camera.lookAt(0, 0.28, -0.35);
         return;
       }
       // Em telas menores, afasta mais a câmera para não ficar “gigante” no celular.
@@ -838,6 +840,56 @@ export default function Home() {
     rocketWindow.scale.set(1, 1, 0.6);
     rocketGroup.add(rocketWindow);
 
+    // Detalhes: listras e anéis
+    const stripeMat = new THREE.MeshStandardMaterial({ color: 0xffb4b4, roughness: 0.7, metalness: 0.05 });
+    const ringGeo = new THREE.TorusGeometry(0.48, 0.035, 12, 24);
+    const ring1 = new THREE.Mesh(ringGeo, stripeMat);
+    ring1.position.y = 0.65;
+    ring1.rotation.x = Math.PI / 2;
+    const ring2 = ring1.clone();
+    ring2.position.y = 1.35;
+    const ring3 = ring1.clone();
+    ring3.position.y = 2.05;
+    rocketGroup.add(ring1, ring2, ring3);
+
+    // Nozzle / motor
+    const nozzle = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.55, 18), new THREE.MeshStandardMaterial({ color: 0x374151, roughness: 0.9, metalness: 0.05 }));
+    nozzle.position.y = -0.2;
+    nozzle.rotation.x = Math.PI;
+    rocketGroup.add(nozzle);
+
+    // Boosters laterais
+    const boosterMat = new THREE.MeshStandardMaterial({ color: 0xf9fafb, roughness: 0.8, metalness: 0.05 });
+    const boosterGeo = new THREE.CylinderGeometry(0.14, 0.16, 1.35, 14);
+    const booster1 = new THREE.Mesh(boosterGeo, boosterMat);
+    booster1.position.set(0.52, 0.95, -0.1);
+    const booster2 = booster1.clone();
+    booster2.position.set(-0.52, 0.95, -0.1);
+    rocketGroup.add(booster1, booster2);
+
+    const boosterCapGeo = new THREE.ConeGeometry(0.16, 0.28, 14);
+    const boosterCap1 = new THREE.Mesh(boosterCapGeo, rocketAccentMat);
+    boosterCap1.position.set(0.52, 1.62, -0.1);
+    const boosterCap2 = boosterCap1.clone();
+    boosterCap2.position.set(-0.52, 1.62, -0.1);
+    rocketGroup.add(boosterCap1, boosterCap2);
+
+    // Perninhas de pouso
+    const legMat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 1, metalness: 0.0 });
+    const legGeo = new THREE.BoxGeometry(0.08, 0.38, 0.42);
+    const leg1 = new THREE.Mesh(legGeo, legMat);
+    leg1.position.set(0.28, 0.18, 0.42);
+    leg1.rotation.x = 0.22;
+    const leg2 = leg1.clone();
+    leg2.position.set(-0.28, 0.18, 0.42);
+    const leg3 = leg1.clone();
+    leg3.position.set(0.32, 0.18, -0.35);
+    leg3.rotation.x = -0.22;
+    const leg4 = leg2.clone();
+    leg4.position.set(-0.32, 0.18, -0.35);
+    leg4.rotation.x = -0.22;
+    rocketGroup.add(leg1, leg2, leg3, leg4);
+
     const finGeo = new THREE.BoxGeometry(0.08, 0.35, 0.55);
     const fin1 = new THREE.Mesh(finGeo, rocketAccentMat);
     fin1.position.set(0.4, 0.5, 0);
@@ -912,6 +964,207 @@ export default function Home() {
     const panelLight = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.25, 0.05), new THREE.MeshBasicMaterial({ color: 0x22c55e }));
     panelLight.position.set(0, 0.15, -1.9);
     rocketInterior.add(panelLight);
+
+    // Detalhes internos: painéis e luzes pra ficar mais "cabine"
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.85, metalness: 0.05 });
+    const softPanelMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.98, metalness: 0.0 });
+    const stripMat = new THREE.MeshBasicMaterial({ color: 0xe0f2fe });
+
+    const strip1 = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.06, 0.08), stripMat);
+    strip1.position.set(0, 2.35, 1.4);
+    rocketInterior.add(strip1);
+    const strip2 = strip1.clone();
+    strip2.position.set(0, 2.35, -1.4);
+    rocketInterior.add(strip2);
+
+    // Painéis laterais (apenas na direita, e mais altos), para não cobrir a boneca/quadro
+    const wallPanelGeo = new THREE.BoxGeometry(1.05, 0.55, 0.06);
+    const wpR1 = new THREE.Mesh(wallPanelGeo, softPanelMat);
+    wpR1.position.set(2.35, 1.75, -1.25);
+    wpR1.rotation.y = -0.85;
+    const wpR2 = wpR1.clone();
+    wpR2.position.set(2.35, 1.75, 1.9);
+    rocketInterior.add(wpR1, wpR2);
+
+    // Janela/painel com estrelas no fundo
+    const winFrame = new THREE.Mesh(new THREE.BoxGeometry(3.25, 1.75, 0.12), frameMat);
+    winFrame.position.set(0, 0.95, -3.05);
+    rocketInterior.add(winFrame);
+
+    const starsCanvas = document.createElement("canvas");
+    starsCanvas.width = 512;
+    starsCanvas.height = 512;
+    const starsCtx = starsCanvas.getContext("2d");
+    if (starsCtx) {
+      const g = starsCtx.createLinearGradient(0, 0, 0, 512);
+      g.addColorStop(0, "#0b1220");
+      g.addColorStop(1, "#1f2a44");
+      starsCtx.fillStyle = g;
+      starsCtx.fillRect(0, 0, 512, 512);
+      for (let i = 0; i < 260; i++) {
+        const x = Math.random() * 512;
+        const y = Math.random() * 512;
+        const r = Math.random() < 0.15 ? 1.8 : 1.0;
+        const a = 0.55 + Math.random() * 0.45;
+        starsCtx.fillStyle = `rgba(255,255,255,${a})`;
+        starsCtx.fillRect(x, y, r, r);
+      }
+    }
+    const starsTex = new THREE.CanvasTexture(starsCanvas);
+    starsTex.needsUpdate = true;
+    const starsMat = new THREE.MeshStandardMaterial({ map: starsTex, emissive: 0xffffff, emissiveIntensity: 0.35, roughness: 0.9, metalness: 0.0 });
+    const winScreen = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 1.5), starsMat);
+    winScreen.position.set(0, 0.95, -2.98);
+    rocketInterior.add(winScreen);
+
+    // Quadro com astronauta.png (parede direita)
+    const texLoader = new THREE.TextureLoader();
+    const astroMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0.0 });
+    texLoader.load(
+      "/astronauta.png",
+      (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.needsUpdate = true;
+        astroMat.map = tex;
+        astroMat.needsUpdate = true;
+      },
+      undefined,
+      () => {
+        // se falhar, mantém branco
+      },
+    );
+
+    const frameOuter = new THREE.Mesh(
+      new THREE.BoxGeometry(1.25, 0.92, 0.08),
+      new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.85, metalness: 0.1 }),
+    );
+    frameOuter.position.set(2.25, 1.08, 0.75);
+    frameOuter.rotation.y = -1.05;
+    rocketInterior.add(frameOuter);
+
+    const frameInner = new THREE.Mesh(new THREE.PlaneGeometry(1.12, 0.8), astroMat);
+    // Leve offset pra frente para não "sumir" dentro da moldura
+    frameInner.position.set(2.19, 1.08, 0.78);
+    frameInner.rotation.y = -1.05;
+    rocketInterior.add(frameInner);
+
+    // Luzes internas
+    const cabinLight = new THREE.PointLight(0xffffff, 0.9, 30);
+    cabinLight.position.set(0, 2.2, 2.2);
+    rocketInterior.add(cabinLight);
+    const cabinLight2 = new THREE.PointLight(0xbfe8ff, 0.55, 30);
+    cabinLight2.position.set(0, 2.0, -2.2);
+    rocketInterior.add(cabinLight2);
+
+    // Mesas + computadores
+    const deskTopMat = new THREE.MeshStandardMaterial({ color: 0xfafafa, roughness: 0.95, metalness: 0.0 });
+    const deskLegMat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 1.0, metalness: 0.0 });
+    const monitorMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.85, metalness: 0.05 });
+    const screenMat = new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x0ea5e9, emissiveIntensity: 0.55, roughness: 0.4, metalness: 0.0 });
+    const keyboardMat = new THREE.MeshStandardMaterial({ color: 0xe5e7eb, roughness: 1.0, metalness: 0.0 });
+
+    const makeDesk = (x: number, z: number, rotY: number) => {
+      const g = new THREE.Group();
+      g.position.set(x, -1.42, z);
+      g.rotation.y = rotY;
+
+      const top = new THREE.Mesh(new THREE.BoxGeometry(1.65, 0.12, 0.72), deskTopMat);
+      top.position.set(0, 0.78, 0);
+      g.add(top);
+
+      const legGeo = new THREE.BoxGeometry(0.08, 0.8, 0.08);
+      const leg1 = new THREE.Mesh(legGeo, deskLegMat);
+      leg1.position.set(0.75, 0.38, 0.30);
+      const leg2 = leg1.clone();
+      leg2.position.set(-0.75, 0.38, 0.30);
+      const leg3 = leg1.clone();
+      leg3.position.set(0.75, 0.38, -0.30);
+      const leg4 = leg1.clone();
+      leg4.position.set(-0.75, 0.38, -0.30);
+      g.add(leg1, leg2, leg3, leg4);
+
+      const monitor = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.38, 0.06), monitorMat);
+      monitor.position.set(0, 1.02, -0.15);
+      g.add(monitor);
+      const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.48, 0.3), screenMat);
+      screen.position.set(0, 1.02, -0.12);
+      g.add(screen);
+
+      const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.2, 12), monitorMat);
+      stand.position.set(0, 0.84, -0.15);
+      g.add(stand);
+
+      const keyboard = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.04, 0.22), keyboardMat);
+      keyboard.position.set(0, 0.83, 0.15);
+      g.add(keyboard);
+
+      rocketInterior.add(g);
+    };
+
+    // Mesas só do lado direito para deixar espaço livre pra boneca (lado esquerdo)
+    makeDesk(1.85, 0.85, -0.55);
+    makeDesk(1.85, -0.85, -0.55);
+
+    // Botão LAUNCH (grande, vermelho) - mais bonito
+    const launchConsole = new THREE.Group();
+    launchConsole.position.set(0, -1.42, -0.25);
+    rocketInterior.add(launchConsole);
+
+    const consoleBase = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.72, 0.35, 22), new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.9, metalness: 0.05 }));
+    consoleBase.position.y = 0.78;
+    launchConsole.add(consoleBase);
+
+    const redButtonMat = new THREE.MeshStandardMaterial({
+      color: 0xef4444,
+      emissive: 0x7f1d1d,
+      emissiveIntensity: 0.45,
+      roughness: 0.5,
+      metalness: 0.08,
+    });
+    const redButton = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.42, 0.22, 30), redButtonMat);
+    redButton.position.y = 1.04;
+    launchConsole.add(redButton);
+
+    const buttonRim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.47, 0.045, 14, 28),
+      new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.8, metalness: 0.2 }),
+    );
+    buttonRim.rotation.x = Math.PI / 2;
+    buttonRim.position.y = 1.12;
+    launchConsole.add(buttonRim);
+
+    const buttonCover = new THREE.Mesh(
+      new THREE.SphereGeometry(0.5, 24, 16),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.15, metalness: 0.0, transparent: true, opacity: 0.12 }),
+    );
+    buttonCover.scale.y = 0.55;
+    buttonCover.position.y = 1.24;
+    launchConsole.add(buttonCover);
+
+    const labelCanvas = document.createElement("canvas");
+    labelCanvas.width = 512;
+    labelCanvas.height = 256;
+    const labelCtx = labelCanvas.getContext("2d");
+    if (labelCtx) {
+      labelCtx.clearRect(0, 0, labelCanvas.width, labelCanvas.height);
+      labelCtx.fillStyle = "rgba(255,255,255,0)";
+      labelCtx.fillRect(0, 0, labelCanvas.width, labelCanvas.height);
+
+      labelCtx.fillStyle = "rgba(0,0,0,0.55)";
+      labelCtx.font = "bold 118px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      labelCtx.textAlign = "center";
+      labelCtx.textBaseline = "middle";
+      labelCtx.fillText("LAUNCH", 260, 134);
+      labelCtx.fillStyle = "#ffffff";
+      labelCtx.fillText("LAUNCH", 256, 128);
+    }
+    const labelTex = new THREE.CanvasTexture(labelCanvas);
+    labelTex.needsUpdate = true;
+    const labelMat = new THREE.MeshBasicMaterial({ map: labelTex, transparent: true });
+    const launchLabel = new THREE.Mesh(new THREE.PlaneGeometry(0.92, 0.28), labelMat);
+    launchLabel.rotation.x = -Math.PI / 2;
+    launchLabel.position.set(0, 1.16, 0.001);
+    launchConsole.add(launchLabel);
 
     // --- Criação da Boneca ---
     const dollGroup = new THREE.Group();
@@ -2117,7 +2370,7 @@ export default function Home() {
           // Olhando na direção do foguete
           const dx = rocketX - dollGroup.position.x;
           const dz = rocketZ - dollGroup.position.z;
-          dollGroup.rotation.y = THREE.MathUtils.lerp(dollGroup.rotation.y, Math.atan2(dx, -dz), 0.18);
+          dollGroup.rotation.y = THREE.MathUtils.lerp(dollGroup.rotation.y, Math.atan2(dx, dz), 0.18);
 
           // Caminhada
           const walkAnim = animSpeed * 1.25;
@@ -2172,10 +2425,16 @@ export default function Home() {
             setBubbleFollowDoll(true);
             setBubbleStage("story");
             setBubbleTyped("Entra logo", () => {
-              setShowSpeechBubble(false);
-              setBubbleFollowDoll(false);
-              rocketEnterRef.current.stage = "run";
-              rocketEnterRef.current.startedAt = timeRef.current;
+              if (rocketPromptTimerRef.current) {
+                window.clearTimeout(rocketPromptTimerRef.current);
+                rocketPromptTimerRef.current = null;
+              }
+              rocketPromptTimerRef.current = window.setTimeout(() => {
+                setShowSpeechBubble(false);
+                setBubbleFollowDoll(false);
+                rocketEnterRef.current.stage = "run";
+                rocketEnterRef.current.startedAt = timeRef.current;
+              }, 1100);
             });
           }
         } else if (re.stage === "prompt") {
@@ -2201,7 +2460,7 @@ export default function Home() {
           // Olhando na direção do foguete enquanto corre
           const dx = rocketX - dollGroup.position.x;
           const dz = rocketZ - dollGroup.position.z;
-          dollGroup.rotation.y = THREE.MathUtils.lerp(dollGroup.rotation.y, Math.atan2(dx, -dz), 0.25);
+          dollGroup.rotation.y = THREE.MathUtils.lerp(dollGroup.rotation.y, Math.atan2(dx, dz), 0.25);
 
           if (u >= 1) {
             re.active = false;
@@ -2321,9 +2580,26 @@ export default function Home() {
           rocketGroup.visible = false;
           rocketInterior.visible = true;
 
-          camera.position.set(0, 0.85, 3.4);
-          camera.lookAt(0, 0.45, 0);
+          scene.background = new THREE.Color(0x0b1220);
+
+          // Coloca a boneca dentro com a gente
+          dollGroup.visible = true;
+          dollGroup.scale.setScalar(0.82);
+          // Joga ela para o lado/fundo para não esconder o botão
+          dollGroup.position.set(-2.15, -0.5, 0.55);
+          dollGroup.rotation.set(0, 0.75, 0);
+          phase = "idle";
+
+          // Para garantir que nenhuma sequência externa mexa nela
+          agataSeqRef.current.active = false;
+          goReturnRef.current.active = false;
+          rocketSeqRef.current.active = false;
+          rocketSeqRef.current.pending = false;
+          rocketEnterRef.current.active = false;
+
+          setCameraForViewport(window.innerWidth, window.innerHeight);
           baseCameraPos = camera.position.clone();
+
         }
       }
 
@@ -2383,6 +2659,10 @@ export default function Home() {
       if (otavioSorryTimerRef.current) {
         window.clearTimeout(otavioSorryTimerRef.current);
         otavioSorryTimerRef.current = null;
+      }
+      if (rocketPromptTimerRef.current) {
+        window.clearTimeout(rocketPromptTimerRef.current);
+        rocketPromptTimerRef.current = null;
       }
       if (bubbleTypingTimerRef.current) {
         window.clearInterval(bubbleTypingTimerRef.current);
